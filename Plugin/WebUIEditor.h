@@ -40,6 +40,7 @@ public:
 
     // Called by tests / host to push a value to the web view
     void pushParamToJS(const juce::String& paramId, float value);
+    void pushAllParamsToJS();
 
 private:
     // ── Nested WebBrowserComponent ────────────────────────────────────────────

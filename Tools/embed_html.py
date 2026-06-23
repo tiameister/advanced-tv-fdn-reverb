@@ -25,6 +25,14 @@ def main():
 
     html = SRC.read_text(encoding="utf-8")
 
+    # Warn if raw non-ASCII appears in HTML (use STR.\u escapes in JS instead)
+    non_ascii = [ch for ch in html if ord(ch) > 127]
+    if non_ascii:
+        unique = sorted(set(non_ascii))
+        print(f"WARN: {len(non_ascii)} non-ASCII chars in HTML "
+              f"({''.join(unique[:12])}{'...' if len(unique)>12 else ''}). "
+              "Prefer ASCII + JS \\u escapes to avoid mojibake.", file=sys.stderr)
+
     # Safety: make sure the chosen delimiter isn't inside the HTML
     if DELIM in html:
         print(f"ERROR: delimiter '{DELIM}' appears inside the HTML. "
@@ -46,7 +54,7 @@ static const char kWebUIHTML[] = R"{DELIM}(
 {html}
 ){DELIM}";
 """
-    DEST.write_text(header, encoding="utf-8")
+    DEST.write_text(header, encoding="utf-8", newline="\n")
     print(f"OK  Wrote {DEST}  ({len(html):,} bytes of HTML, {len(header):,} total)")
 
 if __name__ == "__main__":

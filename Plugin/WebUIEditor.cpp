@@ -50,14 +50,18 @@ void WebUIEditor::resized()
 // ── loadUI ────────────────────────────────────────────────────────────────────
 void WebUIEditor::loadUI()
 {
-    // Write the embedded HTML to a temp file so it loads from file:// rather
-    // than a data: URI (avoids URL-length limits and cross-origin quirks).
     tempHtmlFile_ = juce::File::getSpecialLocation(juce::File::tempDirectory)
                     .getChildFile("pro_reverb_ui.html");
 
-    tempHtmlFile_.replaceWithText(juce::String(kWebUIHTML), false, false, nullptr);
+    // Write explicit UTF-8 with BOM so WebView2 on Windows never mis-detects
+    // encoding (prevents mojibake like "â??" for multiplication / arrows).
+    const juce::String html = juce::String::fromUTF8(kWebUIHTML);
+    juce::MemoryOutputStream mos;
+    static constexpr char kUtf8Bom[] = { '\xEF', '\xBB', '\xBF' };
+    mos.write(kUtf8Bom, sizeof(kUtf8Bom));
+    mos.write(html.toRawUTF8(), (size_t) html.getNumBytesAsUTF8());
+    tempHtmlFile_.replaceWithData(mos.getData(), mos.getDataSize());
 
-    // Build a file:/// URL
     const auto fileUrl = juce::URL(tempHtmlFile_).toString(false);
     browser_.goToURL(fileUrl);
 }
@@ -92,9 +96,7 @@ void WebUIEditor::handleJuceURL(const juce::String& url)
     {
         const int idx = params["idx"].getIntValue();
         presetManager_.loadPreset(idx);
-        // Let the timer push all new values back to JS
-        for (const char* id : kAllParamIds)
-            lastPushed_[id] = -1e9f;
+        pushAllParamsToJS();
     }
     // "advancedView" — no-op on the C++ side; the JS handles the layout itself.
 }
@@ -107,6 +109,30 @@ void WebUIEditor::pushParamToJS(const juce::String& paramId, float value)
     const juce::String script =
         "window._juceUpdate('" + paramId + "'," + juce::String(value, 6) + ")";
     browser_.evaluateJavascript(script);
+}
+
+void WebUIEditor::pushAllParamsToJS()
+{
+    if (!pageReady_) return;
+
+    juce::String json = "{";
+    bool first = true;
+
+    for (const char* id : kAllParamIds)
+    {
+        if (auto* raw = processor_.apvts.getRawParameterValue(id))
+        {
+            const float current = raw->load();
+            lastPushed_[id] = current;
+
+            if (! first) json += ",";
+            first = false;
+            json += "\"" + juce::String(id) + "\":" + juce::String(current, 6);
+        }
+    }
+    json += "}";
+
+    browser_.evaluateJavascript("window._juceBatchUpdate(" + json + ")");
 }
 
 // ── Timer: sync APVTS → JS ────────────────────────────────────────────────────
@@ -144,12 +170,7 @@ bool WebUIEditor::Browser::pageAboutToLoad(const juce::String& newURL)
 void WebUIEditor::Browser::pageFinishedLoading(const juce::String& /*url*/)
 {
     owner_.pageReady_ = true;
-
-    // Force-push all current APVTS values to JS immediately after page load
-    for (const char* id : kAllParamIds)
-        owner_.lastPushed_[id] = -1e9f;
-
-    // Upgrade to 60 fps now that the page is ready
+    owner_.pushAllParamsToJS();
     owner_.startTimerHz(60);
 }
 

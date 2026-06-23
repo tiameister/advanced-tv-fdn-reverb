@@ -155,12 +155,39 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);
 }
 
+/* collapsible panel shell */
+.panel-shell{
+  flex-shrink:0;display:flex;flex-direction:column;
+  transition:flex .28s cubic-bezier(.4,0,.2,1),opacity .2s ease;
+}
+.panel-shell.collapsed.graph-panel{flex:0 0 auto;min-height:0}
+.panel-shell.collapsed .panel-body{
+  max-height:0!important;opacity:0;padding-top:0;padding-bottom:0;
+  pointer-events:none;overflow:hidden;
+}
+.panel-shell.collapsed .graph-body{max-height:0!important;opacity:0}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  cursor:pointer;padding:0 4px 8px 6px;user-select:none;
+}
+.panel-head:hover .panel-label{opacity:1}
 .panel-label{
   font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-  margin-bottom:10px;padding-left:6px;
+  opacity:.85;transition:opacity var(--t);
 }
 .panel.blue .panel-label{color:var(--accent)}
 .panel.warm .panel-label{color:var(--warm)}
+.panel-hint{font-size:8px;color:var(--muted);letter-spacing:.06em;margin-left:8px}
+.chevron{
+  font-size:10px;color:var(--muted);transition:transform .25s ease,color var(--t);
+  line-height:1;padding:2px 6px;
+}
+.panel-shell.collapsed .chevron{transform:rotate(-90deg)}
+.panel-body{
+  max-height:200px;opacity:1;
+  transition:max-height .28s cubic-bezier(.4,0,.2,1),opacity .2s ease,
+             padding .28s ease;
+}
 
 /* ──────────────────────────────────────────────
    KNOB COMPONENT
@@ -214,12 +241,35 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
   content:'';position:absolute;top:0;left:8%;right:8%;height:1px;
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);
 }
+.graph-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:6px;padding-left:6px;flex-shrink:0;
+}
 .graph-label{
   font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-  color:var(--warm);margin-bottom:8px;padding-left:6px;flex-shrink:0;
+  color:var(--warm);
 }
+.graph-hint{font-size:8px;color:var(--muted);letter-spacing:.04em}
 
-#graphSvg{flex:1;width:100%;cursor:crosshair}
+#graphWrap{flex:1;min-height:0;position:relative}
+#graphSvg{width:100%;height:100%;display:block;cursor:crosshair}
+
+/* floating tooltip (HTML layer - avoids SVG text reflow) */
+#graphTooltip{
+  position:absolute;pointer-events:none;z-index:20;
+  padding:6px 10px;border-radius:8px;
+  background:rgba(10,12,18,.92);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 8px 24px rgba(0,0,0,.45);
+  font-size:10px;line-height:1.45;color:var(--text);
+  white-space:nowrap;opacity:0;
+  transition:opacity .1s ease;
+  backdrop-filter:blur(12px);
+}
+#graphTooltip.show{opacity:1}
+#graphTooltip .tt-freq{color:var(--cyan);font-weight:700}
+#graphTooltip .tt-mult{color:var(--warm);font-weight:600}
+#graphTooltip .tt-rt{color:var(--accent)}
 
 .g-gridV{stroke:rgba(255,255,255,.04);stroke-width:1}
 .g-gridH{stroke:rgba(255,255,255,.04);stroke-width:1}
@@ -230,11 +280,12 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
    CHARACTER SLIDE-DOWN
 ────────────────────────────────────────────── */
 .char-wrap{
-  max-height:0;overflow:hidden;
+  max-height:0;overflow:hidden;flex-shrink:0;
   opacity:0;
-  transition:max-height .25s cubic-bezier(.4,0,.2,1),opacity .2s ease;
+  transition:max-height .28s cubic-bezier(.4,0,.2,1),opacity .22s ease,margin .28s ease;
+  margin-top:0;
 }
-.char-wrap.open{max-height:180px;opacity:1}
+.char-wrap.open{max-height:190px;opacity:1;margin-top:0}
 
 /* ──────────────────────────────────────────────
    SCROLLBAR HIDE
@@ -272,7 +323,7 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
     <div class="header-mid">
       <div class="preset-wrap">
         <select class="preset" id="presetSel" onchange="onPresetChange(this.value)">
-          <option value="">─ Presets ─</option>
+          <option value="">- Presets -</option>
           <option value="0">Small Room</option>
           <option value="1">Studio Plate</option>
           <option value="2">Drum Room</option>
@@ -285,20 +336,41 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
 
     <div class="header-right">
       <span class="version">v0.6.0</span>
-      <button class="btn" id="advBtn" onclick="toggleAdv()">CHARACTER ▾</button>
+      <button class="btn" id="advBtn" onclick="toggleAdv()">CHARACTER</button>
     </div>
   </header>
 
-  <!-- ═══ MAIN KNOBS ════════════════════════════════════════════════ -->
-  <div class="panel blue">
-    <div class="panel-label">MAIN</div>
-    <div class="knob-row" id="rowMain"></div>
+  <!-- MAIN (collapsible) -->
+  <div class="panel-shell" id="mainShell">
+    <div class="panel blue">
+      <div class="panel-head" onclick="togglePanel('mainShell')">
+        <div style="display:flex;align-items:baseline">
+          <span class="panel-label">MAIN</span>
+          <span class="panel-hint">Time / Size / Mix</span>
+        </div>
+        <span class="chevron" id="mainChev">&#9662;</span>
+      </div>
+      <div class="panel-body" id="mainBody">
+        <div class="knob-row" id="rowMain"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- ═══ DECAY GRAPH ═══════════════════════════════════════════════ -->
-  <div class="graph-panel">
-    <div class="graph-label">DECAY CURVE — drag nodes to shape frequency response</div>
-    <svg id="graphSvg"></svg>
+  <!-- DECAY GRAPH (hero, collapsible) -->
+  <div class="graph-panel panel-shell" id="graphShell" style="flex:1">
+    <div class="graph-head" onclick="togglePanel('graphShell')">
+      <div>
+        <span class="graph-label">DECAY CURVE</span>
+        <span class="graph-hint" id="graphHint"> - drag nodes (gain) or hover (spectrum)</span>
+      </div>
+      <span class="chevron" id="graphChev">&#9662;</span>
+    </div>
+    <div class="panel-body" id="graphBody" style="flex:1;min-height:0;display:flex;flex-direction:column;max-height:none">
+      <div id="graphWrap">
+        <svg id="graphSvg"></svg>
+        <div id="graphTooltip"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ CHARACTER (advanced) ══════════════════════════════════════ -->
@@ -312,6 +384,33 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
 </div><!-- .app -->
 
 <script>
+/* ASCII-safe UI strings (UTF-8 via JS escapes - survives any file encoding) */
+const STR = {
+  times: '\u00D7',       // multiplication sign
+  chevDn: '\u25BE',      // small down triangle
+  chevUp: '\u25B4',      // small up triangle
+  hz: 'Hz',
+  rt: 'RT',
+};
+
+/* Panel collapse state */
+const panelState = { mainShell: true, graphShell: true };
+let advOpen = false;
+let userDragging = false;   // suppresses echo from C++ timer during local edits
+let graphBuilt = false;
+
+function togglePanel(id){
+  panelState[id] = !panelState[id];
+  const shell = document.getElementById(id);
+  shell.classList.toggle('collapsed', !panelState[id]);
+  if(id === 'graphShell') resizeGraph();
+  bridge.send('panelState', { id, open: panelState[id] ? 1 : 0 });
+}
+
+function setAdvBtnLabel(){
+  const b = document.getElementById('advBtn');
+  b.textContent = 'CHARACTER ' + (advOpen ? STR.chevUp : STR.chevDn);
+}
 /* ─────────────────────────────────────────────────────────────────────
    JUCE BRIDGE
    JS → C++  :  window.location.href = 'juce://action?key=val'
@@ -346,11 +445,26 @@ const bridge = {
   }
 };
 
-// Called by C++ evaluateJavascript
+// Called by C++ evaluateJavascript (single param)
 window._juceUpdate = (id, val) => {
+  if (userDragging) return;
   val = parseFloat(val);
   if (state[id] !== undefined) state[id] = val;
   (bridge._cb[id]||[]).forEach(fn=>fn(val));
+};
+
+// Batch update from C++ (preset load / session restore)
+window._juceBatchUpdate = (jsonStr) => {
+  let obj;
+  try { obj = JSON.parse(jsonStr); } catch(e) { return; }
+  userDragging = false;
+  Object.entries(obj).forEach(([id, val]) => {
+    const v = parseFloat(val);
+    if (state[id] === undefined) return;
+    state[id] = v;
+    (bridge._cb[id]||[]).forEach(fn=>fn(v));
+  });
+  updateGraph();
 };
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -366,9 +480,9 @@ const SCHEMA = {
   stereoWidth:{label:'SPACE',    min:0,   max:2,   def:1,    dec:2, unit:'',   row:'char'},
   erLength:   {label:'ER LEN',   min:20,  max:150, def:80,   dec:0, unit:'ms', row:'char'},
   erDensity:  {label:'ER DEN',   min:8,   max:30,  def:16,   dec:0, unit:'/s', row:'char'},
-  bassDecay:  {label:'BASS',     min:.5,  max:3,   def:1.4,  dec:2, unit:'×',  row:'graph'},
-  midDecay:   {label:'MID',      min:.5,  max:3,   def:1.0,  dec:2, unit:'×',  row:'graph'},
-  hfDecay:    {label:'HIGH',     min:.05, max:2,   def:.25,  dec:2, unit:'×',  row:'graph'},
+  bassDecay:  {label:'BASS',     min:.5,  max:3,   def:1.4,  dec:2, unit:STR.times, row:'graph'},
+  midDecay:   {label:'MID',      min:.5,  max:3,   def:1.0,  dec:2, unit:STR.times, row:'graph'},
+  hfDecay:    {label:'HIGH',     min:.05, max:2,   def:.25,  dec:2, unit:STR.times, row:'graph'},
 };
 
 const state = {};
@@ -490,7 +604,7 @@ function buildKnob(id, container){
   let dy0=0, v0=0;
   const drag=(e)=>{
     const dy=dy0-(e.touches?e.touches[0].clientY:e.clientY);
-    const sens=e.shiftKey?.0008:.005;
+    const sens = e.shiftKey ? 0.0008 : 0.005;
     const newN=Math.max(0,Math.min(1,norm(id,v0)+dy*sens));
     state[id]=denorm(id,newN);
     refresh(state[id]);
@@ -498,12 +612,14 @@ function buildKnob(id, container){
   };
   const up=()=>{
     wrap.classList.remove('dragging');
+    userDragging=false;
     document.body.style.cursor='';
     document.removeEventListener('mousemove',drag);
     document.removeEventListener('mouseup',up);
   };
   wrap.addEventListener('mousedown',e=>{
     dy0=e.clientY; v0=state[id];
+    userDragging=true;
     wrap.classList.add('dragging');
     document.body.style.cursor='ns-resize';
     e.preventDefault();
@@ -534,18 +650,33 @@ const FMIN=20, FMAX=20000, MMIN=0.2, MMAX=3.3;
 const NODE_F  =[250,1500,5000];
 const NODE_IDS=['bassDecay','midDecay','hfDecay'];
 const NODE_COL=['#f5a340','#4f9eff','#3dd6c0'];
+const NODE_NAMES=['Bass','Mid','High'];
 let GW=0,GH=0;
-const PAD={l:36,r:12,t:12,b:26};
+const PAD={l:36,r:12,t:8,b:26};
 
 const fToX=f=>{
   const lm=Math.log10(FMIN),lx=Math.log10(FMAX);
-  return PAD.l+((Math.log10(f)-lm)/(lx-lm))*(GW-PAD.l-PAD.r);
+  return PAD.l+((Math.log10(Math.max(FMIN,f))-lm)/(lx-lm))*(GW-PAD.l-PAD.r);
+};
+const xToF=x=>{
+  const lm=Math.log10(FMIN),lx=Math.log10(FMAX);
+  const t=(x-PAD.l)/(GW-PAD.l-PAD.r);
+  return Math.pow(10, lm+t*(lx-lm));
 };
 const mToY=m=>PAD.t+(1-(m-MMIN)/(MMAX-MMIN))*(GH-PAD.t-PAD.b);
 const yToM=y=>{
   const t=1-(y-PAD.t)/(GH-PAD.t-PAD.b);
   return Math.max(MMIN,Math.min(MMAX,MMIN+t*(MMAX-MMIN)));
 };
+
+function formatFreq(hz){
+  if(hz>=1000) return (hz>=10000?(hz/1000).toFixed(0):(hz/1000).toFixed(1))+'k';
+  return Math.round(hz)+'';
+}
+function effectiveRT(mult){
+  const rt=state.reverbTime||SCHEMA.reverbTime.def;
+  return (rt*mult).toFixed(2);
+}
 
 const getM=f=>{
   const l=Math.log10,
@@ -572,11 +703,60 @@ function curvePts(close){
   return d;
 }
 
+function showTooltip(html, clientX, clientY){
+  const tip=document.getElementById('graphTooltip');
+  const wrap=document.getElementById('graphWrap');
+  if(!tip||!wrap) return;
+  tip.innerHTML=html;
+  tip.classList.add('show');
+  const wr=wrap.getBoundingClientRect();
+  let left=clientX-wr.left+12, top=clientY-wr.top-36;
+  left=Math.max(4,Math.min(left,wr.width-tip.offsetWidth-4));
+  top=Math.max(4,Math.min(top,wr.height-tip.offsetHeight-4));
+  tip.style.left=left+'px';
+  tip.style.top=top+'px';
+}
+function hideTooltip(){
+  const tip=document.getElementById('graphTooltip');
+  if(tip) tip.classList.remove('show');
+}
+function spectrumTooltip(cx,cy){
+  const svg=document.getElementById('graphSvg');
+  const sr=svg.getBoundingClientRect();
+  const x=cx-sr.left, y=cy-sr.top;
+  if(x<PAD.l||x>GW-PAD.r||y<PAD.t||y>GH-PAD.b){hideTooltip();return;}
+  const freq=xToF(x), mult=getM(freq);
+  showTooltip(
+    '<span class="tt-freq">'+formatFreq(freq)+' '+STR.hz+'</span><br>'+
+    '<span class="tt-mult">'+mult.toFixed(2)+STR.times+' '+STR.rt+'</span> '+
+    '<span class="tt-rt">T60 '+effectiveRT(mult)+'s</span>', cx, cy);
+}
+function nodeTooltip(i,cx,cy){
+  const nid=NODE_IDS[i], mult=state[nid], freq=NODE_F[i];
+  showTooltip(
+    '<b>'+NODE_NAMES[i]+'</b> &middot; '+
+    '<span class="tt-freq">'+formatFreq(freq)+' '+STR.hz+'</span><br>'+
+    'Drag <b>up/down</b> gain &middot; <b>Shift</b> fine<br>'+
+    '<span class="tt-mult">'+mult.toFixed(2)+STR.times+' '+STR.rt+'</span> '+
+    '<span class="tt-rt">T60 '+effectiveRT(mult)+'s</span>', cx, cy);
+}
+
+function resizeGraph(){
+  const svg=document.getElementById('graphSvg');
+  const wrap=document.getElementById('graphWrap');
+  if(!svg||!wrap||!panelState.graphShell) return;
+  const r=wrap.getBoundingClientRect();
+  GW=Math.max(200,r.width); GH=Math.max(120,r.height);
+  svg.setAttribute('viewBox','0 0 '+GW+' '+GH);
+  if(graphBuilt) updateGraph(); else buildGraph();
+}
+
 function buildGraph(){
   const svg=document.getElementById('graphSvg');
-  const r=svg.getBoundingClientRect();
-  GW=r.width||660; GH=r.height||175;
-  svg.setAttribute('viewBox',`0 0 ${GW} ${GH}`);
+  const wrap=document.getElementById('graphWrap');
+  const r=(wrap||svg).getBoundingClientRect();
+  GW=Math.max(200,r.width||660); GH=Math.max(120,r.height||175);
+  svg.setAttribute('viewBox','0 0 '+GW+' '+GH);
   svg.innerHTML='';
 
   // ── defs ──────────────────────────────────────────────────────────
@@ -603,7 +783,12 @@ function buildGraph(){
     </radialGradient>`).join('')}`;
   svg.appendChild(defs);
 
-  // ── vertical grid ─────────────────────────────────────────────────
+  const xhair=mkSvg('g',{id:'gXhair',opacity:'0','pointer-events':'none'});
+  xhair.appendChild(mkSvg('line',{id:'xhV',stroke:'rgba(255,255,255,.25)','stroke-width':'1','stroke-dasharray':'4,3'}));
+  xhair.appendChild(mkSvg('line',{id:'xhH',stroke:'rgba(255,255,255,.25)','stroke-width':'1','stroke-dasharray':'4,3'}));
+  svg.appendChild(xhair);
+  svg.appendChild(mkSvg('line',{id:'gSpecV',stroke:'rgba(61,214,192,.35)','stroke-width':'1',opacity:'0','pointer-events':'none'}));
+
   const gv=mkSvg('g',{});
   [30,50,100,200,500,1000,2000,5000,10000,18000].forEach(f=>{
     const x=fToX(f);
@@ -626,7 +811,7 @@ function buildGraph(){
     const tx=mkSvg('text',{class:'g-lbl',x:fToX(f),y:GH-PAD.b+15,'text-anchor':'middle'});
     tx.textContent=t; gl.appendChild(tx);
   });
-  [[.5,'0.5×'],[1,'1×'],[2,'2×'],[3,'3×']].forEach(([m,t])=>{
+  [[.5,'0.5'+STR.times],[1,'1'+STR.times],[2,'2'+STR.times],[3,'3'+STR.times]].forEach(([m,t])=>{
     const tx=mkSvg('text',{class:'g-lbl',x:PAD.l-5,y:mToY(m)+3.5,'text-anchor':'end'});
     tx.textContent=t; gl.appendChild(tx);
   });
@@ -672,47 +857,78 @@ function buildGraph(){
 
     svg.appendChild(ng);
 
-    // Drag
     let dragging=false;
     ng.addEventListener('mousedown',e=>{
-      dragging=true; e.stopPropagation(); e.preventDefault();
-      document.getElementById(`nh_${i}`).setAttribute('opacity','1');
-      document.getElementById(`nr_${i}`).setAttribute('r','11');
+      dragging=true; userDragging=true;
+      e.stopPropagation(); e.preventDefault();
+      document.getElementById('nh_'+i).setAttribute('opacity','1');
+      document.getElementById('nr_'+i).setAttribute('r','11');
+      document.getElementById('gXhair').setAttribute('opacity','1');
+      document.getElementById('gSpecV').setAttribute('opacity','0');
       const move=ev=>{
         if(!dragging)return;
         const sr=svg.getBoundingClientRect();
         const newM=yToM(ev.clientY-sr.top);
         state[nid]=newM;
         updateGraph();
+        nodeTooltip(i, ev.clientX, ev.clientY);
         bridge.send('setParam',{id:nid,value:newM});
       };
       const stop=()=>{
-        dragging=false;
-        document.getElementById(`nh_${i}`).setAttribute('opacity','0');
-        document.getElementById(`nr_${i}`).setAttribute('r','9');
+        dragging=false; userDragging=false;
+        document.getElementById('nh_'+i).setAttribute('opacity','0');
+        document.getElementById('nr_'+i).setAttribute('r','9');
+        document.getElementById('gXhair').setAttribute('opacity','0');
+        hideTooltip();
         document.removeEventListener('mousemove',move);
         document.removeEventListener('mouseup',stop);
       };
       document.addEventListener('mousemove',move);
       document.addEventListener('mouseup',stop);
     });
-    ng.addEventListener('mouseenter',()=>{
+    ng.addEventListener('mouseenter',e=>{
       if(!dragging){
-        document.getElementById(`nh_${i}`).setAttribute('opacity','.7');
-        document.getElementById(`nr_${i}`).setAttribute('r','10');
+        document.getElementById('nh_'+i).setAttribute('opacity','.7');
+        document.getElementById('nr_'+i).setAttribute('r','10');
+        nodeTooltip(i, e.clientX, e.clientY);
       }
     });
     ng.addEventListener('mouseleave',()=>{
       if(!dragging){
-        document.getElementById(`nh_${i}`).setAttribute('opacity','0');
-        document.getElementById(`nr_${i}`).setAttribute('r','9');
+        document.getElementById('nh_'+i).setAttribute('opacity','0');
+        document.getElementById('nr_'+i).setAttribute('r','9');
+        hideTooltip();
       }
+    });
+    ng.addEventListener('dblclick',e=>{
+      e.stopPropagation();
+      state[nid]=SCHEMA[nid].def;
+      updateGraph();
+      bridge.send('setParam',{id:nid,value:SCHEMA[nid].def});
     });
   });
 
-  // JUCE automation sync for graph params
-  NODE_IDS.forEach(id=>{ bridge.on(id,()=>updateGraph()); });
+  svg.addEventListener('mousemove',e=>{
+    if(userDragging) return;
+    const sr=svg.getBoundingClientRect();
+    const x=e.clientX-sr.left;
+    if(x>=PAD.l&&x<=GW-PAD.r){
+      const v=document.getElementById('gSpecV');
+      v.setAttribute('x1',x); v.setAttribute('x2',x);
+      v.setAttribute('y1',PAD.t); v.setAttribute('y2',GH-PAD.b);
+      v.setAttribute('opacity','1');
+      spectrumTooltip(e.clientX, e.clientY);
+    }
+  });
+  svg.addEventListener('mouseleave',()=>{
+    document.getElementById('gSpecV').setAttribute('opacity','0');
+    hideTooltip();
+  });
 
+  NODE_IDS.forEach(id=>{ bridge.on(id,()=>updateGraph()); });
+  bridge.on('reverbTime',()=>{ if(!userDragging) updateGraph(); });
+
+  graphBuilt=true;
   updateGraph();
 }
 
@@ -732,21 +948,27 @@ function updateGraph(){
     if(bb){ bb.setAttribute('x',x-19); bb.setAttribute('y',y-26); }
     const bl=document.getElementById(`nbl_${i}`);
     if(bl){ bl.setAttribute('x',x); bl.setAttribute('y',y-15);
-      bl.textContent=state[nid].toFixed(2)+'×'; }
+      bl.textContent=state[nid].toFixed(2)+STR.times; }
+    const xhV=document.getElementById('xhV'), xhH=document.getElementById('xhH');
+    if(xhV&&xhH){
+      xhV.setAttribute('x1',x); xhV.setAttribute('x2',x);
+      xhV.setAttribute('y1',PAD.t); xhV.setAttribute('y2',GH-PAD.b);
+      xhH.setAttribute('x1',PAD.l); xhH.setAttribute('x2',GW-PAD.r);
+      xhH.setAttribute('y1',y); xhH.setAttribute('y2',y);
+    }
   });
 }
 
 /* ─────────────────────────────────────────────────────────────────────
    ADVANCED TOGGLE
 ──────────────────────────────────────────────────────────────────────*/
-let advOpen=false;
 function toggleAdv(){
   advOpen=!advOpen;
   document.getElementById('charWrap').classList.toggle('open',advOpen);
-  const b=document.getElementById('advBtn');
-  b.textContent='CHARACTER '+(advOpen?'▴':'▾');
-  b.classList.toggle('on',advOpen);
+  setAdvBtnLabel();
+  document.getElementById('advBtn').classList.toggle('on',advOpen);
   bridge.send('advancedView',{open:advOpen?1:0});
+  setTimeout(resizeGraph, 300);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -763,6 +985,7 @@ function onPresetChange(v){
    INIT
 ──────────────────────────────────────────────────────────────────────*/
 function init(){
+  setAdvBtnLabel();
   ['reverbTime','size','preDelay','distance','masterWet'].forEach(id=>
     buildKnob(id, document.getElementById('rowMain')));
   ['modDepth','stereoWidth','erLength','erDensity'].forEach(id=>
@@ -774,9 +997,7 @@ if(document.readyState==='loading')
   document.addEventListener('DOMContentLoaded',init);
 else init();
 
-window.addEventListener('resize',()=>{
-  buildGraph();
-});
+window.addEventListener('resize',()=>{ resizeGraph(); });
 </script>
 </body>
 </html>
