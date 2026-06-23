@@ -50,9 +50,6 @@ int main()
     constexpr int totalSamples = static_cast<int>(2.5 * sampleRate);
     constexpr int numBlocks    = totalSamples / blockSize;
 
-    // High feedback for longer tails (actual T60 scales with feedback).
-    constexpr float feedback   = 0.96f;
-
     // ── Construct & configure ─────────────────────────────────────────────────
     ReverbEngine engine;
     engine.prepare(sampleRate, blockSize,
@@ -64,16 +61,17 @@ int main()
                    /*seedR*/   0x5678EF90u);
     engine.setMasterWet(1.0f);
     engine.setDistance(1.0f);      // pure tail — no ER masking the decay shape
-    engine.setFdnFeedback(feedback);
     engine.setFdnModDepth(0.0f);   // disable LFO so spectral content is stable
 
-    // setDecayEQ: LF decays very slowly, HF decays very fast.
-    // With feedback=0.96 and typical D≈10–18 ms:
-    //   actual_LF_T60 ≈ 2.5 s,  actual_HF_T60 ≈ 0.25 s
-    engine.setDecayEQ(
-        250.0f,  5.0f,   // low shelf:  target 5 s  → actual ~2.5 s
-       1500.0f,  3.0f,   // mid peak:   target 3 s
-       5000.0f,  0.3f);  // high shelf: target 0.3 s → actual ~0.25 s
+    // Unified Reverb Time API:
+    //   reverbTime=2.5 s, bassDecayMult=2.0 → lowT60=5 s (slow bass)
+    //                     hfDecayMult=0.08  → highT60=0.2 s (fast HF)
+    // With feedback derived internally from reverbTime + avgDelay:
+    //   actual_LF_T60 ≈ 2.5 s,  actual_HF_T60 ≈ 0.2 s
+    engine.setReverbTime(2.5f);
+    engine.setDecayShape(2.0f,   // bassDecayMult: bass lingers at 2× RT
+                         1.0f,   // midDecayMult:  mids at RT
+                         0.08f); // hfDecayMult:   HF at 0.08× RT = 0.2 s
 
     // ── Impulse test ──────────────────────────────────────────────────────────
     std::vector<float> left (static_cast<std::size_t>(blockSize), 0.0f);

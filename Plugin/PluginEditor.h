@@ -6,24 +6,24 @@
 /**
  * ReverbPluginEditor
  * ───────────────────
- * Minimal functional UI — all 12 parameters as labelled rotary knobs,
- * organised into three logical groups.
+ * Simplified FabFilter-style control surface — 12 parameters in three rows.
  *
- * Layout (700 × 520 px)
+ * Layout (720 × 520 px)
  * ──────────────────────
- *   Header bar  : plugin name + version
- *   Row A       : Pre-Delay | Distance | Wet Mix                  (3 knobs)
- *   Row B       : FDN Feedback | Mod Depth | Stereo Width         (3 knobs)
- *   Row C       : Low Freq | Low T60 | Mid Freq | Mid T60 | Hi Freq | Hi T60 (6 knobs)
+ *   Header bar    : plugin name + version
+ *   Row A (Main)  : Reverb Time | Room Size | Pre-Delay | Distance | Wet Mix
+ *   Row B (Char.) : Mod Depth | Stereo Width | ER Length | ER Density
+ *   Row C (Decay) : Bass Decay | Mid Decay | HF Decay
  *
- * Phase 5 (future): replace Row C with an interactive decay-curve display
- * showing T60 vs frequency (like FabFilter Pro-R).
+ * Row C encodes a simplified 3-point decay curve:
+ *   bass/mid/hf multipliers × Reverb Time → per-band T60
+ *   (Phase 5: replace Row C with an interactive draggable curve display)
  */
 class ReverbPluginEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit ReverbPluginEditor(ReverbPluginProcessor& proc);
-    ~ReverbPluginEditor() override; // clears LookAndFeel pointers — see .cpp
+    ~ReverbPluginEditor() override;
 
     void paint  (juce::Graphics& g) override;
     void resized() override;
@@ -45,15 +45,17 @@ private:
                   juce::Component* parent);
     };
 
-    // ── Knobs ─────────────────────────────────────────────────────────────────
-    LabelledKnob kPreDelay_, kDistance_, kMasterWet_;
-    LabelledKnob kFeedback_, kModDepth_, kStereoWidth_;
-    LabelledKnob kLowFreq_,  kLowT60_;
-    LabelledKnob kMidFreq_,  kMidT60_;
-    LabelledKnob kHighFreq_, kHighT60_;
+    // ── Row A: Main ───────────────────────────────────────────────────────────
+    LabelledKnob kReverbTime_, kSize_, kPreDelay_, kDistance_, kMasterWet_;
 
-    // ── Section header labels ─────────────────────────────────────────────────
-    juce::Label labelGlobal_, labelFdn_, labelDecayEQ_;
+    // ── Row B: Character ──────────────────────────────────────────────────────
+    LabelledKnob kModDepth_, kStereoWidth_, kErLength_, kErDensity_;
+
+    // ── Row C: Decay shape ────────────────────────────────────────────────────
+    LabelledKnob kBassDecay_, kMidDecay_, kHfDecay_;
+
+    // ── Section headers ───────────────────────────────────────────────────────
+    juce::Label labelMain_, labelChar_, labelDecay_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbPluginEditor)
 };

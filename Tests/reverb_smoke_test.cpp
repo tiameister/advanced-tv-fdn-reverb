@@ -28,8 +28,8 @@ int main()
                    /*seedL*/   0xABCD1234u,
                    /*seedR*/   0x5678EF90u);
     engine.setMasterWet(1.0f);
-    engine.setDistance(0.5f);   // equal-power centre point (ER and tail balanced)
-    engine.setFdnFeedback(0.85f);
+    engine.setDistance(0.5f);    // equal-power centre point (ER and tail balanced)
+    engine.setReverbTime(2.5f);  // unified length control
 
     // Print ER tap counts — verify decorrelation
     const auto& genL = engine.earlyReflections().generatorL();

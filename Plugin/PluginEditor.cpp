@@ -8,40 +8,52 @@ namespace Col
     static constexpr juce::uint32 background = 0xFF16181D;
     static constexpr juce::uint32 panel      = 0xFF1F2229;
     static constexpr juce::uint32 accent     = 0xFF5B8DFE; // cool blue
+    static constexpr juce::uint32 accentWarm = 0xFFD07B4A; // warm amber (Decay row)
     static constexpr juce::uint32 textMain   = 0xFFE8E8EE;
     static constexpr juce::uint32 textDim    = 0xFF808090;
     static constexpr juce::uint32 knobTrack  = 0xFF2E3140;
     static constexpr juce::uint32 knobThumb  = 0xFF5B8DFE;
+    static constexpr juce::uint32 knobWarm   = 0xFFD07B4A;
 }
 
 // ── Custom LookAndFeel ────────────────────────────────────────────────────────
 namespace
 {
+
 struct ReverbLookAndFeel : public juce::LookAndFeel_V4
 {
+    juce::uint32 thumbColour = Col::knobThumb;
+
     ReverbLookAndFeel()
     {
-        setColour(juce::Slider::rotarySliderFillColourId,   juce::Colour(Col::knobThumb));
-        setColour(juce::Slider::rotarySliderOutlineColourId,juce::Colour(Col::knobTrack));
-        setColour(juce::Slider::thumbColourId,              juce::Colour(Col::accent));
-        setColour(juce::Slider::textBoxTextColourId,        juce::Colour(Col::textDim));
-        setColour(juce::Slider::textBoxOutlineColourId,     juce::Colour(0x00000000));
-        setColour(juce::Slider::textBoxBackgroundColourId,  juce::Colour(0x00000000));
-        setColour(juce::Label::textColourId,                juce::Colour(Col::textMain));
+        setColour(juce::Slider::rotarySliderFillColourId,    juce::Colour(Col::knobThumb));
+        setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(Col::knobTrack));
+        setColour(juce::Slider::thumbColourId,               juce::Colour(Col::accent));
+        setColour(juce::Slider::textBoxTextColourId,         juce::Colour(Col::textDim));
+        setColour(juce::Slider::textBoxOutlineColourId,      juce::Colour(0x00000000));
+        setColour(juce::Slider::textBoxBackgroundColourId,   juce::Colour(0x00000000));
+        setColour(juce::Label::textColourId,                 juce::Colour(Col::textMain));
     }
 
     void drawRotarySlider(juce::Graphics& g,
                           int x, int y, int width, int height,
                           float sliderPosProportional,
                           float rotaryStartAngle, float rotaryEndAngle,
-                          juce::Slider& /*slider*/) override
+                          juce::Slider& slider) override
     {
-        const auto bounds = juce::Rectangle<float>((float)x, (float)y,
-                                                   (float)width, (float)height)
+        const auto bounds = juce::Rectangle<float>(float(x), float(y),
+                                                   float(width), float(height))
                                 .reduced(6.0f);
         const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
         const float cx = bounds.getCentreX();
         const float cy = bounds.getCentreY();
+
+        // Pick accent colour based on slider tag (warm for Decay row)
+        const bool isWarm = (slider.getProperties().contains("warm"));
+        const juce::Colour fillCol = isWarm ? juce::Colour(Col::knobWarm)
+                                             : juce::Colour(Col::knobThumb);
+        const juce::Colour dotCol  = isWarm ? juce::Colour(Col::accentWarm)
+                                             : juce::Colour(Col::accent);
 
         // Track arc
         juce::Path track;
@@ -53,18 +65,20 @@ struct ReverbLookAndFeel : public juce::LookAndFeel_V4
 
         // Value arc
         const float angle = rotaryStartAngle + sliderPosProportional
-                            * (rotaryEndAngle - rotaryStartAngle);
+                          * (rotaryEndAngle - rotaryStartAngle);
         juce::Path value;
         value.addCentredArc(cx, cy, radius, radius, 0.0f,
                             rotaryStartAngle, angle, true);
-        g.setColour(juce::Colour(Col::knobThumb));
+        g.setColour(fillCol);
         g.strokePath(value, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
                                                  juce::PathStrokeType::rounded));
 
         // Thumb dot
-        const float thumbX = cx + (radius - 4.0f) * std::cos(angle - juce::MathConstants<float>::halfPi);
-        const float thumbY = cy + (radius - 4.0f) * std::sin(angle - juce::MathConstants<float>::halfPi);
-        g.setColour(juce::Colour(Col::accent));
+        const float thumbX = cx + (radius - 4.0f)
+                           * std::cos(angle - juce::MathConstants<float>::halfPi);
+        const float thumbY = cy + (radius - 4.0f)
+                           * std::sin(angle - juce::MathConstants<float>::halfPi);
+        g.setColour(dotCol);
         g.fillEllipse(thumbX - 4.0f, thumbY - 4.0f, 8.0f, 8.0f);
 
         // Centre cap
@@ -74,8 +88,9 @@ struct ReverbLookAndFeel : public juce::LookAndFeel_V4
     }
 };
 
-static ReverbLookAndFeel gLnF; // one shared instance for the editor
-}
+static ReverbLookAndFeel gLnF;
+
+} // namespace
 
 // ── LabelledKnob helpers ──────────────────────────────────────────────────────
 
@@ -89,7 +104,7 @@ void ReverbPluginEditor::LabelledKnob::init(APVTS& apvts,
 
     label.setText(displayName, juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centred);
-    label.setFont(juce::Font(11.0f));   // plain is the default — no flag needed
+    label.setFont(juce::Font(11.0f));
     label.setColour(juce::Label::textColourId, juce::Colour(Col::textDim));
     parent->addAndMakeVisible(label);
 
@@ -97,18 +112,12 @@ void ReverbPluginEditor::LabelledKnob::init(APVTS& apvts,
 }
 
 // ── Destructor ────────────────────────────────────────────────────────────────
-// JUCE best practice: remove LookAndFeel pointer from every slider before the
-// editor is torn down. gLnF is a file-scope static so it outlives editors, but
-// clearing explicitly prevents JUCE assertion failures if the static order ever
-// changes, and makes intentions clear to future readers.
 
 ReverbPluginEditor::~ReverbPluginEditor()
 {
-    for (LabelledKnob* k : { &kPreDelay_, &kDistance_, &kMasterWet_,
-                              &kFeedback_, &kModDepth_, &kStereoWidth_,
-                              &kLowFreq_,  &kLowT60_,
-                              &kMidFreq_,  &kMidT60_,
-                              &kHighFreq_, &kHighT60_ })
+    for (LabelledKnob* k : { &kReverbTime_, &kSize_, &kPreDelay_, &kDistance_, &kMasterWet_,
+                              &kModDepth_,  &kStereoWidth_, &kErLength_, &kErDensity_,
+                              &kBassDecay_, &kMidDecay_, &kHfDecay_ })
         k->slider.setLookAndFeel(nullptr);
 }
 
@@ -120,33 +129,43 @@ ReverbPluginEditor::ReverbPluginEditor(ReverbPluginProcessor& proc)
     auto& apvts = proc.apvts;
     using P = ReverbPluginProcessor;
 
-    kPreDelay_ .init(apvts, P::kParamPreDelay,  "Pre-Delay",   this);
-    kDistance_ .init(apvts, P::kParamDistance,  "Distance",    this);
-    kMasterWet_.init(apvts, P::kParamMasterWet, "Wet Mix",     this);
-    kFeedback_    .init(apvts, P::kParamFeedback,    "Feedback",      this);
-    kModDepth_    .init(apvts, P::kParamModDepth,    "Mod Depth",     this);
-    kStereoWidth_ .init(apvts, P::kParamStereoWidth, "Stereo Width",  this);
-    kLowFreq_  .init(apvts, P::kParamLowFreq,   "Low Freq",    this);
-    kLowT60_   .init(apvts, P::kParamLowT60,    "Low T60",     this);
-    kMidFreq_  .init(apvts, P::kParamMidFreq,   "Mid Freq",    this);
-    kMidT60_   .init(apvts, P::kParamMidT60,    "Mid T60",     this);
-    kHighFreq_ .init(apvts, P::kParamHighFreq,  "High Freq",   this);
-    kHighT60_  .init(apvts, P::kParamHighT60,   "High T60",    this);
+    // ── Row A: Main ───────────────────────────────────────────────────────────
+    kReverbTime_.init(apvts, P::kParamReverbTime,  "Reverb Time", this);
+    kSize_      .init(apvts, P::kParamSize,        "Room Size",   this);
+    kPreDelay_  .init(apvts, P::kParamPreDelay,    "Pre-Delay",   this);
+    kDistance_  .init(apvts, P::kParamDistance,    "Distance",    this);
+    kMasterWet_ .init(apvts, P::kParamMasterWet,   "Wet Mix",     this);
 
-    // Section headers
-    auto initHeader = [this](juce::Label& lbl, const juce::String& text)
+    // ── Row B: Character ──────────────────────────────────────────────────────
+    kModDepth_    .init(apvts, P::kParamModDepth,    "Mod Depth",    this);
+    kStereoWidth_ .init(apvts, P::kParamStereoWidth, "Width",        this);
+    kErLength_    .init(apvts, P::kParamErLength,    "ER Length",    this);
+    kErDensity_   .init(apvts, P::kParamErDensity,   "ER Density",   this);
+
+    // ── Row C: Decay shape (warm colour to signal "shape" not length) ─────────
+    auto initWarm = [&](LabelledKnob& k, const char* id, const juce::String& name)
+    {
+        k.init(apvts, id, name, this);
+        k.slider.getProperties().set("warm", true);
+    };
+    initWarm(kBassDecay_, P::kParamBassDecay, "Bass");
+    initWarm(kMidDecay_,  P::kParamMidDecay,  "Mid");
+    initWarm(kHfDecay_,   P::kParamHfDecay,   "High");
+
+    // ── Section headers ───────────────────────────────────────────────────────
+    auto initHeader = [this](juce::Label& lbl, const juce::String& text, juce::uint32 col)
     {
         lbl.setText(text, juce::dontSendNotification);
         lbl.setFont(juce::Font(12.0f).boldened());
-        lbl.setColour(juce::Label::textColourId, juce::Colour(Col::accent));
+        lbl.setColour(juce::Label::textColourId, juce::Colour(col));
         lbl.setJustificationType(juce::Justification::left);
         addAndMakeVisible(lbl);
     };
-    initHeader(labelGlobal_,  "GLOBAL");
-    initHeader(labelFdn_,     "FDN");
-    initHeader(labelDecayEQ_, "DECAY EQ");
+    initHeader(labelMain_,  "MAIN",         Col::accent);
+    initHeader(labelChar_,  "CHARACTER",    Col::accent);
+    initHeader(labelDecay_, "DECAY SHAPE",  Col::accentWarm);
 
-    setSize(700, 520);
+    setSize(720, 520);
 }
 
 // ── paint ─────────────────────────────────────────────────────────────────────
@@ -158,7 +177,6 @@ void ReverbPluginEditor::paint(juce::Graphics& g)
     // Header strip
     g.setColour(juce::Colour(Col::panel));
     g.fillRect(0, 0, getWidth(), 44);
-
     g.setColour(juce::Colour(Col::accent));
     g.fillRect(0, 0, 4, 44);
 
@@ -171,12 +189,16 @@ void ReverbPluginEditor::paint(juce::Graphics& g)
     g.drawText("Phase 5 - v0.5.0", getWidth() - 140, 0, 130, 44,
                juce::Justification::centredRight);
 
-    // Panel outlines for each section
-    const auto panelColour = juce::Colour(Col::panel);
-    g.setColour(panelColour);
-    g.fillRoundedRectangle(10.0f,  54.0f,  getWidth() - 20.0f, 130.0f, 6.0f);
-    g.fillRoundedRectangle(10.0f, 194.0f,  getWidth() - 20.0f, 130.0f, 6.0f);
-    g.fillRoundedRectangle(10.0f, 334.0f,  getWidth() - 20.0f, 170.0f, 6.0f);
+    // Panel backgrounds per section
+    const auto panelCol = juce::Colour(Col::panel);
+    g.setColour(panelCol);
+    g.fillRoundedRectangle(10.0f,  54.0f, float(getWidth() - 20), 130.0f, 6.0f); // Main
+    g.fillRoundedRectangle(10.0f, 194.0f, float(getWidth() - 20), 130.0f, 6.0f); // Character
+    g.fillRoundedRectangle(10.0f, 334.0f, float(getWidth() - 20), 130.0f, 6.0f); // Decay
+
+    // Warm accent stripe on Decay section
+    g.setColour(juce::Colour(Col::accentWarm).withAlpha(0.6f));
+    g.fillRoundedRectangle(10.0f, 334.0f, 4.0f, 130.0f, 2.0f);
 }
 
 // ── resized ───────────────────────────────────────────────────────────────────
@@ -184,66 +206,65 @@ void ReverbPluginEditor::paint(juce::Graphics& g)
 void ReverbPluginEditor::resized()
 {
     const int W = getWidth();
-    constexpr int kKnobW   = 90;
-    constexpr int kKnobH   = 80;
-    constexpr int kLabelH  = 18;
-    constexpr int kHeaderH = 16;
+    constexpr int kKnobW  = 84;
+    constexpr int kKnobH  = 80;
+    constexpr int kLabelH = 18;
+    constexpr int kHdrH   = 16;
 
-    // ── Section A: Global (3 knobs) ───────────────────────────────────────────
+    // ── Row A: 5 knobs ────────────────────────────────────────────────────────
     {
-        const int sectionY  = 54;
-        const int knobY     = sectionY + kHeaderH + 6;
-        labelGlobal_.setBounds(18, sectionY + 4, 100, kHeaderH);
+        const int sectionY = 54;
+        const int knobY    = sectionY + kHdrH + 6;
+        labelMain_.setBounds(18, sectionY + 4, 80, kHdrH);
 
-        const int spacing = W / 3;
-        auto placeKnob = [&](LabelledKnob& k, int col)
-        {
-            const int cx = col * spacing + spacing / 2;
-            k.slider.setBounds(cx - kKnobW / 2, knobY,         kKnobW, kKnobH);
-            k.label .setBounds(cx - kKnobW / 2, knobY + kKnobH, kKnobW, kLabelH);
-        };
-        placeKnob(kPreDelay_,  0);
-        placeKnob(kDistance_,  1);
-        placeKnob(kMasterWet_, 2);
-    }
-
-    // ── Section B: FDN (3 knobs) ──────────────────────────────────────────────
-    {
-        const int sectionY = 194;
-        const int knobY    = sectionY + kHeaderH + 6;
-        labelFdn_.setBounds(18, sectionY + 4, 100, kHeaderH);
-
-        const int spacing = W / 3;
-        auto placeKnob = [&](LabelledKnob& k, int col)
+        const int spacing = W / 5;
+        auto place = [&](LabelledKnob& k, int col)
         {
             const int cx = col * spacing + spacing / 2;
             k.slider.setBounds(cx - kKnobW / 2, knobY,          kKnobW, kKnobH);
             k.label .setBounds(cx - kKnobW / 2, knobY + kKnobH, kKnobW, kLabelH);
         };
-        placeKnob(kFeedback_,    0);
-        placeKnob(kModDepth_,    1);
-        placeKnob(kStereoWidth_, 2);
+        place(kReverbTime_, 0);
+        place(kSize_,       1);
+        place(kPreDelay_,   2);
+        place(kDistance_,   3);
+        place(kMasterWet_,  4);
     }
 
-    // ── Section C: Decay EQ (6 knobs in 2 rows of 3) ─────────────────────────
+    // ── Row B: 4 knobs ────────────────────────────────────────────────────────
     {
-        const int sectionY = 334;
-        const int row1Y    = sectionY + kHeaderH + 6;
-        const int row2Y    = row1Y + kKnobH + kLabelH + 8;
-        labelDecayEQ_.setBounds(18, sectionY + 4, 120, kHeaderH);
+        const int sectionY = 194;
+        const int knobY    = sectionY + kHdrH + 6;
+        labelChar_.setBounds(18, sectionY + 4, 120, kHdrH);
 
-        const int spacing = W / 3;
-        auto placeKnob = [&](LabelledKnob& k, int col, int rowY)
+        const int spacing = W / 4;
+        auto place = [&](LabelledKnob& k, int col)
         {
             const int cx = col * spacing + spacing / 2;
-            k.slider.setBounds(cx - kKnobW / 2, rowY,             kKnobW, kKnobH);
-            k.label .setBounds(cx - kKnobW / 2, rowY + kKnobH,    kKnobW, kLabelH);
+            k.slider.setBounds(cx - kKnobW / 2, knobY,          kKnobW, kKnobH);
+            k.label .setBounds(cx - kKnobW / 2, knobY + kKnobH, kKnobW, kLabelH);
         };
-        placeKnob(kLowFreq_,  0, row1Y);
-        placeKnob(kMidFreq_,  1, row1Y);
-        placeKnob(kHighFreq_, 2, row1Y);
-        placeKnob(kLowT60_,   0, row2Y);
-        placeKnob(kMidT60_,   1, row2Y);
-        placeKnob(kHighT60_,  2, row2Y);
+        place(kModDepth_,    0);
+        place(kStereoWidth_, 1);
+        place(kErLength_,    2);
+        place(kErDensity_,   3);
+    }
+
+    // ── Row C: 3 decay-shape knobs ────────────────────────────────────────────
+    {
+        const int sectionY = 334;
+        const int knobY    = sectionY + kHdrH + 6;
+        labelDecay_.setBounds(18, sectionY + 4, 140, kHdrH);
+
+        const int spacing = W / 3;
+        auto place = [&](LabelledKnob& k, int col)
+        {
+            const int cx = col * spacing + spacing / 2;
+            k.slider.setBounds(cx - kKnobW / 2, knobY,          kKnobW, kKnobH);
+            k.label .setBounds(cx - kKnobW / 2, knobY + kKnobH, kKnobW, kLabelH);
+        };
+        place(kBassDecay_, 0);
+        place(kMidDecay_,  1);
+        place(kHfDecay_,   2);
     }
 }
