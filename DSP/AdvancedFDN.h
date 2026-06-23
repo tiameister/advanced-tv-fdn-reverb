@@ -36,9 +36,10 @@ public:
     const std::array<int, NumChannels>& getBaseDelaySamples() const noexcept { return baseDelaySamples_; }
 
 private:
-    static constexpr float kMinDelayMs = 3.0f;
-    static constexpr float kMaxDelayMs = 18.0f;
-    static constexpr float kDefaultModDepth = 0.75f;
+    static constexpr float kMinDelayMs       = 3.0f;
+    static constexpr float kMaxDelayMs       = 18.0f;
+    static constexpr float kDefaultModDepth  = 0.75f;
+    static constexpr float kMaxModDepth      = 2.0f;  // absolute cap; setModDepth clamps to this
     static constexpr float kDcBlockerCutoffHz = 5.0f;
 
     static int nearestAvailablePrime(int target, const std::vector<bool>& isPrimeTable, std::array<bool, 4096>& used) noexcept;

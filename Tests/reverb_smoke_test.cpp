@@ -28,7 +28,7 @@ int main()
                    /*seedL*/   0xABCD1234u,
                    /*seedR*/   0x5678EF90u);
     engine.setMasterWet(1.0f);
-    engine.setErMix(0.3f);
+    engine.setDistance(0.5f);   // equal-power centre point (ER and tail balanced)
     engine.setFdnFeedback(0.85f);
 
     // Print ER tap counts — verify decorrelation

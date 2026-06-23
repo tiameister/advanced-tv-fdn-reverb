@@ -37,14 +37,15 @@
  * setDistance() writes to distanceTarget_. A one-pole lowpass advances
  * distanceCurrent_ per sample inside processBlock. erGain and tailGain are
  * recomputed from distanceCurrent_ on every sample — no jumps possible.
- * Linear crossfade is used (equal-amplitude). Upgrade to equal-power in
- * Phase 3+ if desired.
+ * Equal-power crossfade: erGain = cos(d * π/2), tailGain = sin(d * π/2).
+ * At d=0.5 both channels are at 0.707 (–3 dB) — no dip in perceived loudness.
  *
  * Real-time constraints
  * ─────────────────────
  *   • All scratch buffers and FDLs sized in prepare(); never reallocated.
  *   • processBlock() is allocation-free and lock-free.
- *   • No sin()/cos()/malloc in the audio thread.
+ *   • No malloc in the audio thread.
+ *   • sin()/cos() called once per sample for distance equal-power crossfade only.
  */
 class ReverbEngine
 {
@@ -100,8 +101,11 @@ public:
     }
     float distance() const noexcept { return distanceTarget_; }
 
-    /** Master wet level: 0 = dry only, 1 = wet only. */
-    void setMasterWet(float wet) noexcept { masterWet_ = std::clamp(wet, 0.0f, 1.0f); }
+    /**
+     * Master wet level (0 = dry only, 1 = wet only).
+     * Sets the target; smoothed per-sample → zipper-free under automation.
+     */
+    void setMasterWet(float wet) noexcept { masterWetTarget_ = std::clamp(wet, 0.0f, 1.0f); }
 
     /** FDN feedback (0..0.99). */
     void setFdnFeedback(float g) noexcept { fdn_.setFeedback(g); }
@@ -145,7 +149,13 @@ private:
     std::vector<float> fdnOutR_;
 
     // ── Engine state ─────────────────────────────────────────────────────────
-    double sampleRate_  = 44100.0;
-    float  masterWet_   = 1.0f;
+    double sampleRate_      = 44100.0;
+    int    maxBlockSize_    = 0;
+
+    // Master wet — target/current pair for zipper-free DAW automation
+    float  masterWetTarget_  = 1.0f;
+    float  masterWetCurrent_ = 1.0f;
+    float  masterWetSmCoeff_ = 0.0f; // one-pole coefficient (~50 ms time constant)
+
     bool   prepared_    = false;
 };

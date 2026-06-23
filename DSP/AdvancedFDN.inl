@@ -92,7 +92,9 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     for (const int delay : baseDelaySamples_)
         maxDelaySamples_ = std::max(maxDelaySamples_, delay);
 
-    const int modMargin = static_cast<int>(std::ceil(modDepthTarget_ + 2.0f));
+    // Size for kMaxModDepth, not the current target, so setModDepth() can reach
+    // any value in [0, kMaxModDepth] without overrunning the buffer at runtime.
+    const int modMargin    = static_cast<int>(std::ceil(kMaxModDepth + 2.0f));
     const int lineCapacity = maxDelaySamples_ + modMargin;
 
     for (auto& line : delayLines_)
@@ -151,7 +153,7 @@ void AdvancedFDN<NumChannels>::setFeedback(float feedback) noexcept
 template <int NumChannels>
 void AdvancedFDN<NumChannels>::setModDepth(float depthSamples) noexcept
 {
-    modDepthTarget_ = std::clamp(depthSamples, 0.0f, 2.0f);
+    modDepthTarget_ = std::clamp(depthSamples, 0.0f, kMaxModDepth);
 }
 
 template <int NumChannels>
@@ -202,6 +204,13 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
                                             int numSamples) noexcept
 {
     if (!prepared_ || numSamples <= 0)
+        return;
+
+    // Guard against a DAW sending a block larger than what was prepared.
+    // Scratch arrays (delayed_, mixed_) are fixed-size std::array, so there
+    // is nothing to overrun here, but the caller's output pointers are sized
+    // by maxBlockSize_ — do not write past them.
+    if (numSamples > maxBlockSize_)
         return;
 
     precomputeLfoBlock(numSamples);

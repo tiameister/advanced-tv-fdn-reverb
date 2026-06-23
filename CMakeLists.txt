@@ -12,6 +12,9 @@ add_library(tvfdn_dsp STATIC
     DSP/VelvetNoiseGenerator.cpp
     DSP/EarlyReflections.cpp
     DSP/ReverbEngine.cpp
+    # Phase 3
+    DSP/BiquadFilter.cpp
+    DSP/AbsorptionBank.cpp
 )
 
 target_include_directories(tvfdn_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
