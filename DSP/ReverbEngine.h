@@ -4,6 +4,8 @@
 #include "FractionalDelayLine.h"
 #include "TVFDNEngine.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <vector>
@@ -147,6 +149,56 @@ public:
 
 private:
     static constexpr float kMaxPreDelayMs = 500.0f;
+
+    // ── Schroeder allpass pre-diffuser ────────────────────────────────────────
+    // Applied ONLY to the FDN input path (ER path is intentionally bypassed).
+    // Four cascaded allpass sections per channel convert the sparse discrete
+    // echoes from the FDN delay lines into a dense cloud, eliminating the
+    // flutter/metallic character that is most audible at Distance = 1.
+    //
+    // Transfer function per stage:  H(z) = (z^{-M} - g) / (1 - g·z^{-M})
+    // Cascade of 4 stages is allpass overall → spectral envelope unchanged.
+    // Delay times chosen as prime-ish ms values to minimise beating.
+    struct AllpassStage
+    {
+        std::vector<float> buf;
+        int cap = 0, mask = 0, writeIdx = 0, M = 0;
+
+        void prepare(int delaySamples)
+        {
+            M = std::max(1, delaySamples);
+            int sz = 1;
+            while (sz < M + 2) sz <<= 1;
+            buf.assign(static_cast<std::size_t>(sz), 0.0f);
+            cap = sz; mask = sz - 1; writeIdx = 0;
+        }
+
+        void reset() noexcept
+        {
+            std::fill(buf.begin(), buf.end(), 0.0f);
+            writeIdx = 0;
+        }
+
+        float process(float x, float g) noexcept
+        {
+            const int   readIdx = (writeIdx - M + cap) & mask;
+            const float dm      = buf[static_cast<std::size_t>(readIdx)];
+            const float d       = x + g * dm;
+            buf[static_cast<std::size_t>(writeIdx)] = d;
+            writeIdx = (writeIdx + 1) & mask;
+            return dm - g * d;
+        }
+    };
+
+    static constexpr int   kNumDiffStages = 4;
+    static constexpr float kDiffCoeff     = 0.7f;
+    // Prime-ish delay times (ms) — spans the FDN delay range to maximise density
+    static constexpr std::array<float, kNumDiffStages> kDiffDelayMs{
+        7.43f, 11.87f, 17.31f, 23.11f
+    };
+
+    std::array<AllpassStage, kNumDiffStages> diffL_{};
+    std::array<AllpassStage, kNumDiffStages> diffR_{};
 
     EarlyReflections    er_;
     TVFDNEngine         fdn_;

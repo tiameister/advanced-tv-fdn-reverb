@@ -213,6 +213,21 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     const float hpOmega = 6.283185307179586f * kDcBlockerCutoffHz / float(sampleRate_);
     hpCoeff_ = 1.0f - std::exp(-hpOmega);
 
+    // ── Randomized signed-Hadamard sign matrices ──────────────────────────────
+    // Fixed-seed xorshift32 ensures deterministic behaviour across sessions.
+    // Pre-signs and post-signs are generated from independent RNG streams so
+    // the two mixing passes have uncorrelated sign patterns.
+    {
+        std::uint32_t rng = 0xDEADBEEFu;
+        for (int i = 0; i < NumChannels; ++i)
+        {
+            rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+            fwhtPreSigns_[static_cast<std::size_t>(i)] = (rng & 1u) ? 1.0f : -1.0f;
+            rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+            fwhtPostSigns_[static_cast<std::size_t>(i)] = (rng & 1u) ? 1.0f : -1.0f;
+        }
+    }
+
     // ── Initial RT + decay EQ coefficients ────────────────────────────────────
     // setReverbTime computes feedbackTarget_ and T60 bands, then calls
     // updateFilterCoefficients (which requires prepared_ = true, so set it first).
@@ -570,8 +585,14 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
                 delayLines_[static_cast<std::size_t>(i)].readSample(delay);
         }
 
-        // ── FWHT orthogonal mix ───────────────────────────────────────────────
-        mixed_ = delayed_;
+        // ── Signed-Hadamard feedback mix ─────────────────────────────────────
+        // Pre-multiply by random ±1 signs before the FWHT.  The effective
+        // feedback matrix becomes D_pre × FWHT, which is orthogonal but has
+        // no regular structure — modal resonances are spread uniformly rather
+        // than concentrating in the Hadamard eigenmodes.
+        for (int i = 0; i < NumChannels; ++i)
+            mixed_[static_cast<std::size_t>(i)] = delayed_[static_cast<std::size_t>(i)]
+                                                * fwhtPreSigns_[static_cast<std::size_t>(i)];
         dsp::applyOrthogonalMix(mixed_);
 
         // ── Feedback loop: per-channel gain → DC block → absorption → write ─────
@@ -593,11 +614,23 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
             sampleValue = absorptionBanks_[static_cast<std::size_t>(i)].processSample(sampleValue);
             filtered_[static_cast<std::size_t>(i)] = sampleValue;
 
-            const float injected = sampleValue + monoIn * norm;
-            delayLines_[static_cast<std::size_t>(i)].writeSample(injected);
+            // ── Single-channel input injection ───────────────────────────────
+            // Inject only into channel 0.  A single-point B vector distributes
+            // input energy uniformly across ALL 16 Hadamard modes after the
+            // next FWHT pass — instead of concentrating all energy in the DC
+            // (all-ones) mode as the old equal all-channel injection did.
+            // Total energy unchanged: monoIn² = 16 × (monoIn × 0.25)² (same).
+            const float injectAmt = (i == 0) ? monoIn : 0.0f;
+            delayLines_[static_cast<std::size_t>(i)].writeSample(sampleValue + injectAmt);
         }
 
-        // ── Wet output: second FWHT on damped state, decorrelated stereo pan ──
+        // ── Signed-Hadamard output mix ───────────────────────────────────────
+        // Apply a second (independent) set of ±1 signs before the output FWHT.
+        // Using different signs from the feedback mix ensures the two FWHT
+        // passes create orthogonally-rotated output bases, maximising
+        // left/right decorrelation in the stereo pan accumulation below.
+        for (int i = 0; i < NumChannels; ++i)
+            filtered_[static_cast<std::size_t>(i)] *= fwhtPostSigns_[static_cast<std::size_t>(i)];
         dsp::applyOrthogonalMix(filtered_);
 
         float wetLeft  = 0.0f;

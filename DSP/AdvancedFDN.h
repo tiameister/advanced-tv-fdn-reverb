@@ -208,6 +208,18 @@ private:
     float feedbackTarget_  = 0.85f;
     float feedbackCurrent_ = 0.85f;
 
+    // ── Randomized signed-Hadamard mixing matrices ────────────────────────────
+    // Two arrays of ±1 values, one applied per-element before each FWHT pass.
+    // The combined matrix D_out * FWHT * D_in is a "signed Hadamard" matrix —
+    // orthogonal like the regular FWHT but without its structured eigenmode
+    // pattern.  This breaks the tonal regularity produced by the regular
+    // Walsh-Hadamard Transform acting on prime-spaced delay lines, smoothing
+    // the diffuse tail into a more noise-like texture (Valhalla / FabFilter
+    // quality target).  Signs are fixed (deterministic seed) so the plugin
+    // behaviour is reproducible; the FDN T60 is unaffected by sign flips.
+    std::array<float, NumChannels> fwhtPreSigns_{};   // applied before feedback FWHT
+    std::array<float, NumChannels> fwhtPostSigns_{};  // applied before output FWHT
+
     // ── Per-channel loop gains ────────────────────────────────────────────────
     // Each entry = 10^(−3 · D_i / T60_bass) — targets the LONGEST decay band
     // so that absorption banks only need to ATTENUATE (gains always ≤ 1).

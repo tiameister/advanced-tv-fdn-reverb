@@ -58,6 +58,16 @@ void ReverbEngine::prepare(double        sampleRate,
     fdnOutL_ .assign(sz, 0.0f);
     fdnOutR_ .assign(sz, 0.0f);
 
+    // ── Allpass pre-diffuser ──────────────────────────────────────────────────
+    for (int s = 0; s < kNumDiffStages; ++s)
+    {
+        const int ds = static_cast<int>(
+            kDiffDelayMs[static_cast<std::size_t>(s)]
+            * static_cast<float>(sampleRate) * 0.001f) + 1;
+        diffL_[static_cast<std::size_t>(s)].prepare(ds);
+        diffR_[static_cast<std::size_t>(s)].prepare(ds);
+    }
+
     // ── Sub-modules ───────────────────────────────────────────────────────────
     er_.prepare(sampleRate_, blockSize,
                 erLengthMs_, erDensityHz_, erMinSpacingMs_,
@@ -82,6 +92,12 @@ void ReverbEngine::reset() noexcept
 
     er_.reset();
     fdn_.reset();
+
+    for (int s = 0; s < kNumDiffStages; ++s)
+    {
+        diffL_[static_cast<std::size_t>(s)].reset();
+        diffR_[static_cast<std::size_t>(s)].reset();
+    }
 
     std::fill(delayedL_.begin(), delayedL_.end(), 0.0f);
     std::fill(delayedR_.begin(), delayedR_.end(), 0.0f);
@@ -159,16 +175,27 @@ void ReverbEngine::processBlock(float* left, float* right, int numSamples) noexc
                      erOutL_.data(), erOutR_.data(),
                      numSamples);
 
-    // ── Step 3: Pre-delayed signal → FDN input (ER intentionally excluded) ────
+    // ── Step 3: Pre-delayed signal → diffuser → FDN input ────────────────────
     //
-    // ER is kept OUT of the FDN input.  The Distance crossfade at Step 5 already
-    // blends ER and tail at the output.  Coupling them here would seed the tank
-    // with early energy that re-emerges in the diffuse tail, making early content
-    // appear twice and blurring the ER/tail boundary Distance controls.
+    // ER is kept OUT of the FDN input (would double-stamp early energy, blurring
+    // the Distance crossfade — see header comment).
+    //
+    // The 4-stage Schroeder allpass diffuser (applied only here, before the FDN)
+    // converts the sparse dry signal into a dense cloud BEFORE it enters the
+    // delay lines.  Without this, each FDN delay line (5–25 ms at size=0.5)
+    // produces a discrete echo that never fully merges → flutter / metallic.
+    // The cascade is allpass → flat spectrum, so it adds density without colour.
     for (int i = 0; i < numSamples; ++i)
     {
-        fdnInL_[i] = delayedL_[i];
-        fdnInR_[i] = delayedR_[i];
+        float dL = delayedL_[i];
+        float dR = delayedR_[i];
+        for (int s = 0; s < kNumDiffStages; ++s)
+        {
+            dL = diffL_[static_cast<std::size_t>(s)].process(dL, kDiffCoeff);
+            dR = diffR_[static_cast<std::size_t>(s)].process(dR, kDiffCoeff);
+        }
+        fdnInL_[i] = dL;
+        fdnInR_[i] = dR;
     }
 
     // ── Step 4: FDN diffuse tail (100 % wet) ──────────────────────────────────
