@@ -13,16 +13,29 @@
  * Signal chain
  * ────────────
  *
- *   Dry L ──────────────────────────────────────────────────────────────────────────────────────┐
- *           │                                                                                    │
- *           └──► FractionalDelayLine ──► delayedL ──┬──► EarlyReflections ──► erOutL ──► erGain ──┐
- *                 (Cubic Hermite interp.)           │                                              + ──► wetL
- *                 (per-sample smoothed delay)        └──► FDN input ──► TVFDNEngine ──► fdnOutL ──► tailGain ─┘
- *
+ *                                                     ┌──► EarlyReflections ──► erOutL ──┐
+ *   Dry L ──► FractionalDelayLine ──► delayedL ───────┤                                  ├─(Distance)─► wetL
+ *             (Cubic Hermite interp.)                 └──► TVFDNEngine ──────────────────┘
+ *             (per-sample smoothed delay)                   (16-ch TV-FDN, post-FWHT tap,
+ *                                                            M/S stereo width)
  *   (same topology for R)
  *
- * Both ER and FDN receive the same fractionally-delayed signal, so the tail
- * and the reflections always depart from exactly the same moment in time.
+ * ER / FDN decoupling (critical for spatial clarity)
+ * ────────────────────────────────────────────────────
+ * The FDN is seeded with delayedL/R ONLY — not with erOutL/R.
+ * Coupling ER into the FDN input would make early energy appear twice:
+ *   (1) in the output Distance crossfade, and
+ *   (2) as a seeded component of the diffuse tail.
+ * That duplication blurs the ER/tail boundary that Distance controls.
+ * Keeping the paths separate lets Distance crossfade cleanly between
+ * a "close, room-shaped" early field and an "ambient, diffuse" late tail.
+ *
+ * Output tap topology (post-FWHT, in AdvancedFDN)
+ * ─────────────────────────────────────────────────
+ * The FDN tank is decoded from mixed_[i] (post-FWHT) rather than
+ * raw delay reads, so each output sample is a diffuse blend of all 16
+ * channels — producing the enveloping spatial field of professional reverbs.
+ *
  * The master dry signal is undelayed, preserving the original transient.
  *
  * Pre-delay automation (Doppler glide)
@@ -112,6 +125,12 @@ public:
 
     /** FDN LFO modulation depth (samples). */
     void setFdnModDepth(float d) noexcept { fdn_.setModDepth(d); }
+
+    /**
+     * FDN output stereo width via M/S matrix (0 = mono, 1 = natural, 2 = hyper-wide).
+     * Smoothed per-sample to prevent clicks on automation.
+     */
+    void setFdnStereoWidth(float w) noexcept { fdn_.setStereoWidth(w); }
 
     /**
      * Frequency-dependent decay EQ (Phase 3).

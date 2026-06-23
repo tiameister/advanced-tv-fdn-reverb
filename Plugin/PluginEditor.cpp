@@ -105,7 +105,7 @@ void ReverbPluginEditor::LabelledKnob::init(APVTS& apvts,
 ReverbPluginEditor::~ReverbPluginEditor()
 {
     for (LabelledKnob* k : { &kPreDelay_, &kDistance_, &kMasterWet_,
-                              &kFeedback_, &kModDepth_,
+                              &kFeedback_, &kModDepth_, &kStereoWidth_,
                               &kLowFreq_,  &kLowT60_,
                               &kMidFreq_,  &kMidT60_,
                               &kHighFreq_, &kHighT60_ })
@@ -123,8 +123,9 @@ ReverbPluginEditor::ReverbPluginEditor(ReverbPluginProcessor& proc)
     kPreDelay_ .init(apvts, P::kParamPreDelay,  "Pre-Delay",   this);
     kDistance_ .init(apvts, P::kParamDistance,  "Distance",    this);
     kMasterWet_.init(apvts, P::kParamMasterWet, "Wet Mix",     this);
-    kFeedback_ .init(apvts, P::kParamFeedback,  "Feedback",    this);
-    kModDepth_ .init(apvts, P::kParamModDepth,  "Mod Depth",   this);
+    kFeedback_    .init(apvts, P::kParamFeedback,    "Feedback",      this);
+    kModDepth_    .init(apvts, P::kParamModDepth,    "Mod Depth",     this);
+    kStereoWidth_ .init(apvts, P::kParamStereoWidth, "Stereo Width",  this);
     kLowFreq_  .init(apvts, P::kParamLowFreq,   "Low Freq",    this);
     kLowT60_   .init(apvts, P::kParamLowT60,    "Low T60",     this);
     kMidFreq_  .init(apvts, P::kParamMidFreq,   "Mid Freq",    this);
@@ -167,7 +168,7 @@ void ReverbPluginEditor::paint(juce::Graphics& g)
 
     g.setFont(juce::Font(11.0f));
     g.setColour(juce::Colour(Col::textDim));
-    g.drawText("Phase 4 - v0.4.0", getWidth() - 140, 0, 130, 44,
+    g.drawText("Phase 5 - v0.5.0", getWidth() - 140, 0, 130, 44,
                juce::Justification::centredRight);
 
     // Panel outlines for each section
@@ -206,21 +207,22 @@ void ReverbPluginEditor::resized()
         placeKnob(kMasterWet_, 2);
     }
 
-    // ── Section B: FDN (2 knobs) ──────────────────────────────────────────────
+    // ── Section B: FDN (3 knobs) ──────────────────────────────────────────────
     {
         const int sectionY = 194;
         const int knobY    = sectionY + kHeaderH + 6;
         labelFdn_.setBounds(18, sectionY + 4, 100, kHeaderH);
 
-        const int spacing = W / 4;
+        const int spacing = W / 3;
         auto placeKnob = [&](LabelledKnob& k, int col)
         {
             const int cx = col * spacing + spacing / 2;
-            k.slider.setBounds(cx - kKnobW / 2, knobY,         kKnobW, kKnobH);
+            k.slider.setBounds(cx - kKnobW / 2, knobY,          kKnobW, kKnobH);
             k.label .setBounds(cx - kKnobW / 2, knobY + kKnobH, kKnobW, kLabelH);
         };
-        placeKnob(kFeedback_, 1);
-        placeKnob(kModDepth_, 2);
+        placeKnob(kFeedback_,    0);
+        placeKnob(kModDepth_,    1);
+        placeKnob(kStereoWidth_, 2);
     }
 
     // ── Section C: Decay EQ (6 knobs in 2 rows of 3) ─────────────────────────

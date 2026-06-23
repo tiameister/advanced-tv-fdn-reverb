@@ -53,3 +53,8 @@ void TVFDNEngine::setDecayEQ(float lowFreq,  float lowT60,
 {
     fdn_.setDecayEQ(lowFreq, lowT60, midFreq, midT60, highFreq, highT60);
 }
+
+void TVFDNEngine::setStereoWidth(float width) noexcept
+{
+    fdn_.setStereoWidth(width);
+}

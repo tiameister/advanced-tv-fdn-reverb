@@ -29,6 +29,9 @@ public:
                     float midFreq,  float midT60,
                     float highFreq, float highT60) noexcept;
 
+    /** M/S stereo width of the FDN output — delegates to AdvancedFDN::setStereoWidth. */
+    void setStereoWidth(float width) noexcept;
+
     AdvancedFDN<16>& getFDN() noexcept { return fdn_; }
     const AdvancedFDN<16>& getFDN() const noexcept { return fdn_; }
 

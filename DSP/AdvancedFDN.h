@@ -13,8 +13,29 @@
  * Time-Varying Feedback Delay Network (TV-FDN).
  *
  * N-channel diagonal delay lines, orthogonal FWHT mixing, multi-phase LFO
- * modulation, and true-stereo L/R injection into even/odd channels. All buffers are
- * pre-allocated in prepare().
+ * modulation, true-stereo injection, and M/S stereo width control.
+ * All buffers are pre-allocated in prepare().
+ *
+ * Output tap topology (post-FWHT)
+ * ────────────────────────────────
+ * The audible output is tapped from mixed_[i] (post-FWHT) rather than from
+ * delayed_[i] (pre-FWHT). This means every output sample is a diffuse linear
+ * combination of ALL 16 delay channels — not just 8 — producing the enveloping,
+ * wrap-around spatial field characteristic of professional reverbs.
+ *
+ * Level analysis: for uncorrelated channels each of RMS A,
+ *   mixed_[i] after FWHT normalisation ≈ A  (energy-preserving)
+ *   tap = mixed_[i] * norm  ≈  delayed_[i] * norm  (same output level)
+ * so the change is perceptually louder in spatial diffusion, not in peak level.
+ *
+ * Stereo width (M/S)
+ * ──────────────────
+ * After accumulating wetLeft/wetRight, a Mid/Side matrix scales the stereo
+ * difference signal:
+ *   mid  = (L + R) / 2
+ *   side = (L - R) / 2 × width
+ *   L_out = mid + side,  R_out = mid − side
+ * At width=1: identity.  At width=0: mono.  At width>1: hyper-wide.
  */
 template <int NumChannels = 16>
 class AdvancedFDN
@@ -33,6 +54,14 @@ public:
     void setModDepth(float depthSamples) noexcept;
     void setDryWet(float mix) noexcept;
     void setModRates(const std::array<float, NumChannels>& ratesHz) noexcept;
+
+    /**
+     * Set stereo width of the FDN output via an M/S matrix.
+     *
+     * @param width  0 = mono, 1 = natural (default), 2 = hyper-wide.
+     *               Clamped to [0, 2]. Smoothed per-sample to prevent clicks.
+     */
+    void setStereoWidth(float width) noexcept;
 
     /**
      * Set frequency-dependent decay parameters.
@@ -91,12 +120,14 @@ private:
     std::array<float, NumChannels> delayed_{};
     std::array<float, NumChannels> mixed_{};
 
-    float feedbackTarget_ = 0.85f;
-    float feedbackCurrent_ = 0.85f;
-    float modDepthTarget_ = kDefaultModDepth;
-    float modDepthCurrent_ = kDefaultModDepth;
-    float dryWetTarget_ = 1.0f;
-    float dryWetCurrent_ = 1.0f;
+    float feedbackTarget_      = 0.85f;
+    float feedbackCurrent_     = 0.85f;
+    float modDepthTarget_      = kDefaultModDepth;
+    float modDepthCurrent_     = kDefaultModDepth;
+    float dryWetTarget_        = 1.0f;
+    float dryWetCurrent_       = 1.0f;
+    float stereoWidthTarget_   = 1.0f;  // 0=mono  1=natural  2=hyper-wide
+    float stereoWidthCurrent_  = 1.0f;
 
     float paramSmoothingCoeff_ = 0.001f;
     float hpCoeff_             = 0.0f;

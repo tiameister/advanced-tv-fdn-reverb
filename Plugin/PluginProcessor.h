@@ -73,8 +73,9 @@ public:
     static constexpr const char* kParamPreDelay    = "preDelay";
     static constexpr const char* kParamDistance    = "distance";
     static constexpr const char* kParamMasterWet   = "masterWet";
-    static constexpr const char* kParamFeedback    = "fdnFeedback";
-    static constexpr const char* kParamModDepth    = "fdnModDepth";
+    static constexpr const char* kParamFeedback     = "fdnFeedback";
+    static constexpr const char* kParamModDepth     = "fdnModDepth";
+    static constexpr const char* kParamStereoWidth  = "fdnStereoWidth";
     static constexpr const char* kParamLowFreq     = "decayLowFreq";
     static constexpr const char* kParamLowT60      = "decayLowT60";
     static constexpr const char* kParamMidFreq     = "decayMidFreq";
@@ -93,8 +94,9 @@ private:
     std::atomic<float>* pPreDelay_   = nullptr;
     std::atomic<float>* pDistance_   = nullptr;
     std::atomic<float>* pMasterWet_  = nullptr;
-    std::atomic<float>* pFeedback_   = nullptr;
-    std::atomic<float>* pModDepth_   = nullptr;
+    std::atomic<float>* pFeedback_      = nullptr;
+    std::atomic<float>* pModDepth_      = nullptr;
+    std::atomic<float>* pStereoWidth_   = nullptr;
     std::atomic<float>* pLowFreq_    = nullptr;
     std::atomic<float>* pLowT60_     = nullptr;
     std::atomic<float>* pMidFreq_    = nullptr;

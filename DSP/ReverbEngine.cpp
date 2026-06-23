@@ -134,11 +134,19 @@ void ReverbEngine::processBlock(float* left, float* right, int numSamples) noexc
                      erOutL_.data(), erOutR_.data(),
                      numSamples);
 
-    // ── Step 3: Pre-delayed signal + ER → FDN input ────────────────────────────
+    // ── Step 3: Pre-delayed signal → FDN input (ER intentionally excluded) ──────
+    //
+    // We do NOT add erOutL/R here.  The Distance crossfade in Step 5 already
+    // blends ER and the FDN tail at the output.  Feeding ER into the FDN would
+    // seed the tank with early energy that then re-emerges in the diffuse tail,
+    // causing ER content to appear twice and blurring the ER/tail boundary that
+    // Distance is designed to control.  Keeping the paths orthogonal lets the
+    // Distance knob crossfade cleanly between a close, room-shaped early field
+    // and an enveloping, diffuse late tail.
     for (int i = 0; i < numSamples; ++i)
     {
-        fdnInL_[i] = delayedL_[i] + erOutL_[i];
-        fdnInR_[i] = delayedR_[i] + erOutR_[i];
+        fdnInL_[i] = delayedL_[i];
+        fdnInR_[i] = delayedR_[i];
     }
 
     // ── Step 4: FDN diffuse tail (100 % wet) ──────────────────────────────────

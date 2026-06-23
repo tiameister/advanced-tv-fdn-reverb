@@ -45,6 +45,12 @@ ReverbPluginProcessor::createParameterLayout()
         Range{ 0.0f, 2.0f, 0.01f }, 0.75f,
         juce::AudioParameterFloatAttributes{}.withLabel("smp")));
 
+    // Stereo width: M/S decode of the FDN tank output.
+    // 0 = mono, 1 = natural (default), 2 = hyper-wide.
+    params.push_back(std::make_unique<Param>(
+        kParamStereoWidth, "Stereo Width",
+        Range{ 0.0f, 2.0f, 0.01f }, 1.0f));
+
     // ── Decay EQ ──────────────────────────────────────────────────────────────
     params.push_back(std::make_unique<Param>(
         kParamLowFreq, "Low Shelf Freq",
@@ -104,8 +110,9 @@ void ReverbPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     pPreDelay_  = apvts.getRawParameterValue(kParamPreDelay);
     pDistance_  = apvts.getRawParameterValue(kParamDistance);
     pMasterWet_ = apvts.getRawParameterValue(kParamMasterWet);
-    pFeedback_  = apvts.getRawParameterValue(kParamFeedback);
-    pModDepth_  = apvts.getRawParameterValue(kParamModDepth);
+    pFeedback_     = apvts.getRawParameterValue(kParamFeedback);
+    pModDepth_     = apvts.getRawParameterValue(kParamModDepth);
+    pStereoWidth_  = apvts.getRawParameterValue(kParamStereoWidth);
     pLowFreq_   = apvts.getRawParameterValue(kParamLowFreq);
     pLowT60_    = apvts.getRawParameterValue(kParamLowT60);
     pMidFreq_   = apvts.getRawParameterValue(kParamMidFreq);
@@ -127,11 +134,12 @@ void ReverbPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     // ── Push all APVTS values immediately ─────────────────────────────────────
     // Without this the engine runs with constructor defaults for one block.
     // Decay EQ is handled by the shadow invalidation above (fires next block).
-    if (pPreDelay_)   reverbEngine_.setPreDelayMs (pPreDelay_ ->load(std::memory_order_relaxed));
-    if (pDistance_)   reverbEngine_.setDistance   (pDistance_ ->load(std::memory_order_relaxed));
-    if (pMasterWet_)  reverbEngine_.setMasterWet  (pMasterWet_->load(std::memory_order_relaxed));
-    if (pFeedback_)   reverbEngine_.setFdnFeedback(pFeedback_ ->load(std::memory_order_relaxed));
-    if (pModDepth_)   reverbEngine_.setFdnModDepth(pModDepth_ ->load(std::memory_order_relaxed));
+    if (pPreDelay_)      reverbEngine_.setPreDelayMs     (pPreDelay_    ->load(std::memory_order_relaxed));
+    if (pDistance_)      reverbEngine_.setDistance       (pDistance_    ->load(std::memory_order_relaxed));
+    if (pMasterWet_)     reverbEngine_.setMasterWet      (pMasterWet_   ->load(std::memory_order_relaxed));
+    if (pFeedback_)      reverbEngine_.setFdnFeedback    (pFeedback_    ->load(std::memory_order_relaxed));
+    if (pModDepth_)      reverbEngine_.setFdnModDepth    (pModDepth_    ->load(std::memory_order_relaxed));
+    if (pStereoWidth_)   reverbEngine_.setFdnStereoWidth (pStereoWidth_ ->load(std::memory_order_relaxed));
 }
 
 // ── processBlock ──────────────────────────────────────────────────────────────
@@ -151,8 +159,9 @@ void ReverbPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float preDelay  = pPreDelay_  ? pPreDelay_ ->load(std::memory_order_relaxed) : 0.0f;
     const float distance  = pDistance_  ? pDistance_ ->load(std::memory_order_relaxed) : 0.5f;
     const float masterWet = pMasterWet_ ? pMasterWet_->load(std::memory_order_relaxed) : 1.0f;
-    const float feedback  = pFeedback_  ? pFeedback_ ->load(std::memory_order_relaxed) : 0.85f;
-    const float modDepth  = pModDepth_  ? pModDepth_ ->load(std::memory_order_relaxed) : 0.75f;
+    const float feedback    = pFeedback_     ? pFeedback_    ->load(std::memory_order_relaxed) : 0.85f;
+    const float modDepth    = pModDepth_     ? pModDepth_    ->load(std::memory_order_relaxed) : 0.75f;
+    const float stereoWidth = pStereoWidth_  ? pStereoWidth_ ->load(std::memory_order_relaxed) : 1.0f;
 
     const float lf = pLowFreq_  ? pLowFreq_ ->load(std::memory_order_relaxed) : 250.0f;
     const float lt = pLowT60_   ? pLowT60_  ->load(std::memory_order_relaxed) : 3.0f;
@@ -162,11 +171,12 @@ void ReverbPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float ht = pHighT60_  ? pHighT60_ ->load(std::memory_order_relaxed) : 0.8f;
 
     // ── 2. Forward smooth-able params (internal one-pole smoothers absorb jumps)
-    reverbEngine_.setPreDelayMs(preDelay);
-    reverbEngine_.setDistance(distance);
-    reverbEngine_.setMasterWet(masterWet);
-    reverbEngine_.setFdnFeedback(feedback);
-    reverbEngine_.setFdnModDepth(modDepth);
+    reverbEngine_.setPreDelayMs    (preDelay);
+    reverbEngine_.setDistance      (distance);
+    reverbEngine_.setMasterWet     (masterWet);
+    reverbEngine_.setFdnFeedback   (feedback);
+    reverbEngine_.setFdnModDepth   (modDepth);
+    reverbEngine_.setFdnStereoWidth(stereoWidth);
 
     // ── 3. Decay EQ — epsilon-gated coefficient recompute ────────────────────
     // updateFilterCoefficients() calls pow/sin/cos × 16 channels — heavy.

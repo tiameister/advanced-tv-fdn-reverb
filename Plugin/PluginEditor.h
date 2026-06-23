@@ -6,14 +6,14 @@
 /**
  * ReverbPluginEditor
  * ───────────────────
- * Minimal functional UI — all 11 parameters as labelled rotary knobs,
+ * Minimal functional UI — all 12 parameters as labelled rotary knobs,
  * organised into three logical groups.
  *
  * Layout (700 × 520 px)
  * ──────────────────────
  *   Header bar  : plugin name + version
- *   Row A       : Pre-Delay | Distance | Wet Mix        (3 knobs)
- *   Row B       : FDN Feedback | Mod Depth              (2 knobs)
+ *   Row A       : Pre-Delay | Distance | Wet Mix                  (3 knobs)
+ *   Row B       : FDN Feedback | Mod Depth | Stereo Width         (3 knobs)
  *   Row C       : Low Freq | Low T60 | Mid Freq | Mid T60 | Hi Freq | Hi T60 (6 knobs)
  *
  * Phase 5 (future): replace Row C with an interactive decay-curve display
@@ -47,7 +47,7 @@ private:
 
     // ── Knobs ─────────────────────────────────────────────────────────────────
     LabelledKnob kPreDelay_, kDistance_, kMasterWet_;
-    LabelledKnob kFeedback_, kModDepth_;
+    LabelledKnob kFeedback_, kModDepth_, kStereoWidth_;
     LabelledKnob kLowFreq_,  kLowT60_;
     LabelledKnob kMidFreq_,  kMidT60_;
     LabelledKnob kHighFreq_, kHighT60_;

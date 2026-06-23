@@ -130,9 +130,10 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     const float hpOmega = twoPi * kDcBlockerCutoffHz / static_cast<float>(sampleRate_);
     hpCoeff_ = 1.0f - std::exp(-hpOmega);
 
-    feedbackCurrent_ = feedbackTarget_;
-    modDepthCurrent_ = modDepthTarget_;
-    dryWetCurrent_ = dryWetTarget_;
+    feedbackCurrent_    = feedbackTarget_;
+    modDepthCurrent_    = modDepthTarget_;
+    dryWetCurrent_      = dryWetTarget_;
+    stereoWidthCurrent_ = stereoWidthTarget_;
 
     prepared_ = true;
     reset();
@@ -177,6 +178,12 @@ void AdvancedFDN<NumChannels>::setDryWet(float mix) noexcept
 }
 
 template <int NumChannels>
+void AdvancedFDN<NumChannels>::setStereoWidth(float width) noexcept
+{
+    stereoWidthTarget_ = std::clamp(width, 0.0f, 2.0f);
+}
+
+template <int NumChannels>
 void AdvancedFDN<NumChannels>::setModRates(const std::array<float, NumChannels>& ratesHz) noexcept
 {
     for (int i = 0; i < NumChannels; ++i)
@@ -186,9 +193,10 @@ void AdvancedFDN<NumChannels>::setModRates(const std::array<float, NumChannels>&
 template <int NumChannels>
 void AdvancedFDN<NumChannels>::updateSmoothedParameters() noexcept
 {
-    feedbackCurrent_ += paramSmoothingCoeff_ * (feedbackTarget_ - feedbackCurrent_);
-    modDepthCurrent_ += paramSmoothingCoeff_ * (modDepthTarget_ - modDepthCurrent_);
-    dryWetCurrent_ += paramSmoothingCoeff_ * (dryWetTarget_ - dryWetCurrent_);
+    feedbackCurrent_    += paramSmoothingCoeff_ * (feedbackTarget_    - feedbackCurrent_);
+    modDepthCurrent_    += paramSmoothingCoeff_ * (modDepthTarget_    - modDepthCurrent_);
+    dryWetCurrent_      += paramSmoothingCoeff_ * (dryWetTarget_      - dryWetCurrent_);
+    stereoWidthCurrent_ += paramSmoothingCoeff_ * (stereoWidthTarget_ - stereoWidthCurrent_);
 }
 
 template <int NumChannels>
@@ -272,11 +280,30 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
             const float injected = sampleValue + channelIn * norm;
             delayLines_[static_cast<std::size_t>(i)].writeSample(injected);
 
-            const float tap = delayed_[static_cast<std::size_t>(i)] * norm;
+            // ── Post-FWHT output tap ─────────────────────────────────────────
+            // Tap from mixed_[i] (post-FWHT diffuse field) rather than the raw
+            // delayed_[i] read.  Because the FWHT is a unitary transform, each
+            // mixed_[i] is a normalised linear combination of ALL 16 delay lines,
+            // so both L and R outputs receive contributions from the full tank.
+            // This eliminates the "8-lines-per-ear" parity-split limitation and
+            // produces a more enveloping, wrap-around spatial field.
+            // Level is preserved: mixed_[i] × norm ≈ delayed_[i] × norm for
+            // uncorrelated channels (FWHT energy-normalisation cancels exactly).
+            const float tap = mixed_[static_cast<std::size_t>(i)] * norm;
             if ((i % 2) == 0)
                 wetLeft += tap;
             else
                 wetRight += tap;
+        }
+
+        // ── M/S stereo width ─────────────────────────────────────────────────
+        // mid  = (L + R) / 2,  side = (L - R) / 2 × width
+        // At width=1 → identity.  At width=0 → mono.  At width=2 → hyper-wide.
+        {
+            const float mid  = (wetLeft + wetRight) * 0.5f;
+            const float side = (wetLeft - wetRight) * (0.5f * stereoWidthCurrent_);
+            wetLeft  = mid + side;
+            wetRight = mid - side;
         }
 
         const float wetMix = dryWetCurrent_;
