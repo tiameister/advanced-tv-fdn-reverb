@@ -9,6 +9,10 @@
  *
  * Hosts the modern HTML/CSS/JS plugin UI inside a JUCE WebBrowserComponent.
  *
+ * Windows requires Edge WebView2 (not legacy IE).  The browser is initialised
+ * with Backend::webview2 and a writable user-data folder under the system temp
+ * directory so hosted plugins work inside DAW sandboxes (e.g. Studio One).
+ *
  * ── Architecture ─────────────────────────────────────────────────────────────
  *
  *   JS → C++   "juce://action?key=val"  navigation (sub-frame trick)
@@ -45,15 +49,11 @@ public:
 private:
     // ── Nested WebBrowserComponent ────────────────────────────────────────────
     // Intercepts juce:// URLs in pageAboutToLoad() without leaving the page.
+    // WebView2 backend + writable user-data folder are configured in WebUIEditor.cpp
+    // (required for DAW sandboxes — without them JUCE falls back to legacy IE/MSHTML).
     struct Browser : public juce::WebBrowserComponent
     {
-        explicit Browser(WebUIEditor& owner)
-            : juce::WebBrowserComponent(
-                  juce::WebBrowserComponent::Options{}
-                      .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
-                      .withKeepPageLoadedWhenBrowserIsHidden()),
-              owner_(owner)
-        {}
+        explicit Browser(WebUIEditor& owner);
 
         bool pageAboutToLoad(const juce::String& newURL) override;
         void pageFinishedLoading(const juce::String& url) override;

@@ -3,6 +3,37 @@
 
 using P = ReverbPluginProcessor;
 
+namespace
+{
+
+/** Dark UI background — prevents a white flash while WebView2 initialises. */
+const juce::Colour kWebViewBackground { 0xff080b12 };
+
+/**
+ * WebView2-only browser options for Windows DAW hosts (e.g. Studio One).
+ *
+ * A writable user-data folder is mandatory inside plugin sandboxes; without it
+ * WebView2 fails to start and JUCE silently falls back to legacy IE/MSHTML.
+ */
+juce::WebBrowserComponent::Options makeWebBrowserOptions()
+{
+    auto userDataFolder =
+        juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("TiaVerb_WebView2_Data");
+
+    userDataFolder.createDirectory();
+
+    return juce::WebBrowserComponent::Options{}
+        .withBackend (juce::WebBrowserComponent::Options::Backend::webview2)
+        .withWinWebView2Options (
+            juce::WebBrowserComponent::Options::WinWebView2{}
+                .withUserDataFolder (userDataFolder)
+                .withBackgroundColour (kWebViewBackground))
+        .withKeepPageLoadedWhenBrowserIsHidden();
+}
+
+} // namespace
+
 // ── Parameter ID list (must match APVTS) ─────────────────────────────────────
 static const char* const kAllParamIds[] =
 {
@@ -11,6 +42,23 @@ static const char* const kAllParamIds[] =
     P::kParamStereoWidth,P::kParamErLength,    P::kParamErDensity,
     P::kParamBassDecay,  P::kParamMidDecay,    P::kParamHfDecay,
 };
+
+// ── Browser (WebView2-only) ───────────────────────────────────────────────────
+WebUIEditor::Browser::Browser (WebUIEditor& owner)
+    : juce::WebBrowserComponent ([]
+    {
+        const auto options = makeWebBrowserOptions();
+
+       #if JUCE_WINDOWS
+        // Refuse to proceed silently into the IE fallback path in debug builds.
+        jassert (juce::WebBrowserComponent::areOptionsSupported (options));
+       #endif
+
+        return options;
+    }()),
+      owner_(owner)
+{
+}
 
 // ── Constructor / Destructor ──────────────────────────────────────────────────
 WebUIEditor::WebUIEditor(ReverbPluginProcessor& proc)
