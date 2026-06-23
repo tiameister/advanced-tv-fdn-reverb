@@ -156,7 +156,9 @@ bool renderConfiguration(const juce::AudioBuffer<float>& dryInput,
     engine.setDistance(config.distance);
     engine.setFdnStereoWidth(config.stereoWidth);
     engine.setMasterWet(1.0f);
-    engine.setFdnFeedback(0.85f);
+    engine.setReverbTime(2.5f);                    // plugin default (replaces setFdnFeedback)
+    engine.setDecayShape(1.4f, 1.0f, 0.2f);        // bass / mid / HF tilt multipliers
+    engine.setSize(0.33f);                         // medium room
     engine.setFdnModDepth(0.75f);
 
     engine.prepare(sampleRate, kBlockSize);

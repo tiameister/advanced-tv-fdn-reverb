@@ -13,7 +13,7 @@ constexpr bool isPowerOfTwo(std::size_t value) noexcept
     return value > 0 && (value & (value - 1)) == 0;
 }
 
-constexpr float orthogonalNormalization(std::size_t n) noexcept
+inline float orthogonalNormalization(std::size_t n) noexcept
 {
     return 1.0f / std::sqrt(static_cast<float>(n));
 }
