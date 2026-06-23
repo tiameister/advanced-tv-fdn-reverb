@@ -15,32 +15,21 @@
  *   Left input  ──► Left VN sequence  (seeded with seedL) ──► Left ER output
  *   Right input ──► Right VN sequence (seeded with seedR) ──► Right ER output
  *
- * Because the two sequences are seeded differently, the Left and Right ER
- * tap structures are completely decorrelated — there are no common tap
- * positions or common signs. This produces a natural, organic spatial
- * response: a hard-panned source triggers spatially distinct reflections
- * on each side, matching the physics of asymmetric room boundaries.
+ * Pre-delay is NOT handled here. The caller (ReverbEngine) must apply a
+ * global pre-delay ring to the input BEFORE calling processBlock so that
+ * the FDN tail and the ER burst both start from the same delayed moment.
  *
- * Input signal routing
- * ────────────────────
- *   erOutL[n] = sum_k( sign_k_L * inputL[ n - tapDelay_k_L ] ) * normL
- *   erOutR[n] = sum_k( sign_k_R * inputR[ n - tapDelay_k_R ] ) * normR
- *
- * There is deliberately NO cross-feed between L and R here.  The FWHT
- * mixing inside the subsequent TV-FDN naturally spreads energy across
- * both channels during the diffuse tail.
- *
- * Real-time constraints
- * ─────────────────────
- *   • All memory (ring buffers, tap tables) is sized in prepare().
- *   • processBlock() is allocation-free and lock-free.
- *   • The inner loop walks a flat Tap array — branch-free, cache-friendly.
+ * Bitwise wrapping
+ * ────────────────
+ * Read indices are computed as:
+ *   (writeIndex - tapDelay + ringCapacity_) & ringMask_
+ * The +ringCapacity_ term guarantees the left operand of & is always positive,
+ * avoiding undefined behaviour from bitwise AND on negative signed integers.
  */
 class EarlyReflections
 {
 public:
-    static constexpr int kMaxErLengthMs  = 120;    // absolute cap on window
-    static constexpr int kMaxBlockSize   = 4096;
+    static constexpr int kMaxErLengthMs = 120;  // absolute cap on ER window
 
     EarlyReflections() = default;
 
@@ -50,7 +39,6 @@ public:
      * @param sampleRate       Host sample rate (Hz).
      * @param maxBlockSize     Maximum block size the host will call processBlock with.
      * @param erLengthMs       ER window length in milliseconds (0 < erLengthMs ≤ 120).
-     * @param preDelayMs       Constant pre-delay before the first tap (0–50 ms).
      * @param targetDensityHz  Mean tap density for each sequence (impulses/sec).
      * @param minSpacingMs     Minimum inter-tap distance (prevents clustering).
      * @param seedL            PRNG seed for the Left channel sequence.
@@ -60,7 +48,6 @@ public:
     void prepare(double        sampleRate,
                  int           maxBlockSize,
                  float         erLengthMs,
-                 float         preDelayMs,
                  float         targetDensityHz,
                  float         minSpacingMs,
                  std::uint32_t seedL,
@@ -70,7 +57,7 @@ public:
 
     /**
      * Process one block.  Writes ER output to erOutLeft / erOutRight.
-     * Caller sums these with the dry signal before feeding the FDN.
+     * Input must already be pre-delayed by the caller if pre-delay is desired.
      */
     void processBlock(const float* inLeft,
                       const float* inRight,
@@ -78,9 +65,9 @@ public:
                       float*       erOutRight,
                       int          numSamples) noexcept;
 
-    // Parameter updates (audio-thread safe — atomic-style scalar writes)
-    void setErMix(float gain) noexcept  { erMixGain_ = gain; }
-    float erMix()             const noexcept { return erMixGain_; }
+    /** Raw ER output level before Distance crossfade (0..1, default 1). */
+    void  setErMix(float gain) noexcept { erMixGain_ = gain; }
+    float erMix()              const noexcept { return erMixGain_; }
 
     const VelvetNoiseGenerator& generatorL() const noexcept { return genL_; }
     const VelvetNoiseGenerator& generatorR() const noexcept { return genR_; }
@@ -88,26 +75,19 @@ public:
 private:
     static int nextPowerOfTwo(int v) noexcept;
 
-    // ── Ring buffer (one per channel) ────────────────────────────────────
-    // Sized to kMaxErLengthSamples + maxBlockSize in prepare().
     std::vector<float> ringL_;
     std::vector<float> ringR_;
+    int ringCapacity_  = 0;   // stored explicitly for safe negative-offset reads
     int ringMask_      = 0;
     int writeIndexL_   = 0;
     int writeIndexR_   = 0;
 
-    // ── Velvet sequences ─────────────────────────────────────────────────
     VelvetNoiseGenerator genL_;
     VelvetNoiseGenerator genR_;
 
-    // ── Pre-delay offset (integer samples, applied to every tap) ─────────
-    int preDelaySamples_ = 0;
-
-    // ── Output gain (applied once after the tap sum) ──────────────────────
-    // = erMixGain_ * normalisationGain, combined in prepare() and on set.
-    float erMixGain_    = 0.3f; // user-facing wet level, 0..1
-    float normGainL_    = 1.0f;
-    float normGainR_    = 1.0f;
+    float erMixGain_ = 1.0f;  // distance crossfade in ReverbEngine handles blend
+    float normGainL_ = 1.0f;
+    float normGainR_ = 1.0f;
 
     bool prepared_ = false;
 };

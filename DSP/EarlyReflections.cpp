@@ -1,7 +1,6 @@
 #include "EarlyReflections.h"
 
 #include <algorithm>
-#include <cstring>
 
 int EarlyReflections::nextPowerOfTwo(int v) noexcept
 {
@@ -14,33 +13,26 @@ int EarlyReflections::nextPowerOfTwo(int v) noexcept
 void EarlyReflections::prepare(double        sampleRate,
                                 int           maxBlockSize,
                                 float         erLengthMs,
-                                float         preDelayMs,
                                 float         targetDensityHz,
                                 float         minSpacingMs,
                                 std::uint32_t seedL,
                                 std::uint32_t seedR)
 {
     const float clampedLengthMs = std::clamp(erLengthMs, 1.0f, static_cast<float>(kMaxErLengthMs));
-    const float clampedPreMs    = std::clamp(preDelayMs, 0.0f, 50.0f);
 
-    // Ring buffer must hold at least (erLength + preDelay + maxBlock) samples
-    // so that the deepest tap is always available when we fill a full block.
+    // Ring buffer must hold at least (erLength + maxBlock) samples so the
+    // deepest tap is always valid when filling a complete block.
     const int erLengthSamples = static_cast<int>(
         clampedLengthMs * static_cast<float>(sampleRate) * 0.001f) + 1;
-    const int preDelaySamples = static_cast<int>(
-        clampedPreMs * static_cast<float>(sampleRate) * 0.001f);
-    const int ringCapacity    = nextPowerOfTwo(erLengthSamples + preDelaySamples
-                                               + std::max(1, maxBlockSize) + 2);
 
-    ringL_.assign(static_cast<std::size_t>(ringCapacity), 0.0f);
-    ringR_.assign(static_cast<std::size_t>(ringCapacity), 0.0f);
-    ringMask_    = ringCapacity - 1;
+    ringCapacity_ = nextPowerOfTwo(erLengthSamples + std::max(1, maxBlockSize) + 2);
+    ringMask_     = ringCapacity_ - 1;
+
+    ringL_.assign(static_cast<std::size_t>(ringCapacity_), 0.0f);
+    ringR_.assign(static_cast<std::size_t>(ringCapacity_), 0.0f);
     writeIndexL_ = 0;
     writeIndexR_ = 0;
 
-    preDelaySamples_ = preDelaySamples;
-
-    // Build two independent velvet sequences with distinct seeds
     genL_.prepare(sampleRate, clampedLengthMs, targetDensityHz, minSpacingMs, seedL);
     genR_.prepare(sampleRate, clampedLengthMs, targetDensityHz, minSpacingMs, seedR);
 
@@ -68,6 +60,7 @@ void EarlyReflections::processBlock(const float* inLeft,
     if (!prepared_ || numSamples <= 0)
         return;
 
+    const int   cap     = ringCapacity_;
     const int   mask    = ringMask_;
     const float gainL   = normGainL_ * erMixGain_;
     const float gainR   = normGainR_ * erMixGain_;
@@ -76,32 +69,33 @@ void EarlyReflections::processBlock(const float* inLeft,
 
     for (int n = 0; n < numSamples; ++n)
     {
-        // Write current input samples into rings
-        ringL_[static_cast<std::size_t>(writeIndexL_ & mask)] = inLeft[n];
-        ringR_[static_cast<std::size_t>(writeIndexR_ & mask)] = inRight[n];
+        ringL_[static_cast<std::size_t>(writeIndexL_)] = inLeft[n];
+        ringR_[static_cast<std::size_t>(writeIndexR_)] = inRight[n];
 
-        // Accumulate Left ER: convolve inputL with left velvet sequence
+        // Left ER — convolve inputL with left velvet sequence.
+        // +cap before masking guarantees a positive operand for &, preventing
+        // UB from bitwise AND on negative signed integers.
         float sumL = 0.0f;
         for (int t = 0; t < numTapL; ++t)
         {
-            const auto& tap = genL_.tap(t);
-            const int   readIdx = (writeIndexL_ - tap.delaySamples - preDelaySamples_) & mask;
+            const auto& tap     = genL_.tap(t);
+            const int   readIdx = (writeIndexL_ - tap.delaySamples + cap) & mask;
             sumL += tap.sign * ringL_[static_cast<std::size_t>(readIdx)];
         }
 
-        // Accumulate Right ER: convolve inputR with right velvet sequence
+        // Right ER — convolve inputR with right velvet sequence.
         float sumR = 0.0f;
         for (int t = 0; t < numTapR; ++t)
         {
-            const auto& tap = genR_.tap(t);
-            const int   readIdx = (writeIndexR_ - tap.delaySamples - preDelaySamples_) & mask;
+            const auto& tap     = genR_.tap(t);
+            const int   readIdx = (writeIndexR_ - tap.delaySamples + cap) & mask;
             sumR += tap.sign * ringR_[static_cast<std::size_t>(readIdx)];
         }
 
         erOutLeft[n]  = sumL * gainL;
         erOutRight[n] = sumR * gainR;
 
-        // Wrap with mask — avoids signed integer overflow at ~12 hr @ 48 kHz
+        // Wrap with mask — prevents signed integer overflow (~12 hr @ 48 kHz)
         writeIndexL_ = (writeIndexL_ + 1) & mask;
         writeIndexR_ = (writeIndexR_ + 1) & mask;
     }
