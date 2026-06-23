@@ -243,11 +243,11 @@ void ReverbPluginEditor::paint(juce::Graphics& g)
 
     g.setFont(juce::Font(juce::FontOptions{}.withHeight(20.0f)).boldened());
     g.setColour(juce::Colour(Col::textMain));
-    g.drawText("PRO REVERB", 14, 0, 220, kHeaderH, juce::Justification::centredLeft);
+    g.drawText("TiaVerb", 14, 0, 220, kHeaderH, juce::Justification::centredLeft);
 
     g.setFont(juce::Font(juce::FontOptions{}.withHeight(10.0f)));
     g.setColour(juce::Colour(Col::textDim));
-    g.drawText("v0.6.0", W - 60, 0, 50, kHeaderH, juce::Justification::centredRight);
+    g.drawText(JucePlugin_VersionString, W - 60, 0, 50, kHeaderH, juce::Justification::centredRight);
 
     // Row A panel
     const int rowAY = kHeaderH + kGap;

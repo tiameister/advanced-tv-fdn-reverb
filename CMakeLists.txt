@@ -70,12 +70,18 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
     # ── Plugin target ─────────────────────────────────────────────────────────
     if(BUILD_VST3)
     juce_add_plugin(ProReverb
-        COMPANY_NAME              "TiaDSP"
-        PLUGIN_MANUFACTURER_CODE  Sdsp
-        PLUGIN_CODE               Rvb1
+        COMPANY_NAME              "Tia Audio"
+        COMPANY_WEBSITE           "https://tiaaudio.com"
+        COMPANY_EMAIL             "info@tiaaudio.com"
+        COMPANY_COPYRIGHT         "Copyright (c) 2026 Tia Audio. All rights reserved."
+        PLUGIN_MANUFACTURER_CODE  TiaA
+        PLUGIN_CODE               Tvrb
+        PLUGIN_NAME               "TiaVerb"
+        PRODUCT_NAME              "TiaVerb"
+        DESCRIPTION               "Professional algorithmic reverb with a time-varying FDN engine, interactive decay shaping, proximity modelling, and factory presets."
         VERSION                   "1.0.0"
+        BUNDLE_ID                 com.tiaaudio.tiaverb
         FORMATS                   VST3 Standalone
-        PRODUCT_NAME              "Tia Reverb"
         IS_SYNTH                  FALSE
         NEEDS_MIDI_INPUT          FALSE
         NEEDS_MIDI_OUTPUT         FALSE
@@ -84,7 +90,8 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
         NEEDS_WEB_BROWSER         TRUE
         NEEDS_WEBVIEW2            TRUE
         COPY_PLUGIN_AFTER_BUILD   FALSE
-        VST3_CATEGORIES           "Fx" "Reverb"
+        VST3_AUTO_MANIFEST        TRUE
+        VST3_CATEGORIES           "Fx" "Reverb" "Spatial"
     )
 
     juce_generate_juce_header(ProReverb)

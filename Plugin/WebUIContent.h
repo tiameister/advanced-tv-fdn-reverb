@@ -13,7 +13,7 @@ static const char kWebUIHTML[] = R"WEBUICONTENT_RAW(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pro Reverb</title>
+<title>TiaVerb</title>
 <style>
 /* ──────────────────────────────────────────────
    DESIGN TOKENS
@@ -325,8 +325,8 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
         <circle cx="13" cy="13" r="3" fill="url(#gemGrad)" opacity=".8"/>
       </svg>
       <div>
-        <div class="logo-name">PRO REVERB</div>
-        <div class="logo-sub">ALGORITHMIC</div>
+        <div class="logo-name">TiaVerb</div>
+        <div class="logo-sub">ALGORITHMIC REVERB</div>
       </div>
     </div>
 
@@ -345,7 +345,7 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
     </div>
 
     <div class="header-right">
-      <span class="version">v0.6.0</span>
+      <span class="version">v1.0.0</span>
       <button class="btn" id="advBtn" onclick="toggleAdv()">CHARACTER</button>
     </div>
   </header>

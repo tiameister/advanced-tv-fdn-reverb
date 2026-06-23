@@ -51,7 +51,7 @@ void WebUIEditor::resized()
 void WebUIEditor::loadUI()
 {
     tempHtmlFile_ = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                    .getChildFile("pro_reverb_ui.html");
+                    .getChildFile("tiaverb_ui.html");
 
     // Write explicit UTF-8 with BOM so WebView2 on Windows never mis-detects
     // encoding (prevents mojibake like "â??" for multiplication / arrows).

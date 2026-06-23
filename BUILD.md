@@ -33,7 +33,7 @@ cmake --build build --config Release --target ProReverb_VST3
 Output:
 
 ```text
-build\ProReverb_artefacts\Release\VST3\Tia Reverb.vst3
+build\ProReverb_artefacts\Release\VST3\TiaVerb.vst3
 ```
 
 Copy that `.vst3` folder into your DAW’s VST3 directory if needed.
@@ -49,13 +49,13 @@ cmake --build build --config Release --target ProReverb_Standalone
 Output:
 
 ```text
-build\ProReverb_artefacts\Release\Standalone\Tia Reverb.exe
+build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe
 ```
 
 Run:
 
 ```powershell
-.\build\ProReverb_artefacts\Release\Standalone\Tia Reverb.exe
+.\build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe
 ```
 
 ---
@@ -109,6 +109,6 @@ cmake --build build --config Release --target decay_smoke_test
 
 | What        | Build target            | Output path |
 |-------------|-------------------------|-------------|
-| VST3        | `ProReverb_VST3`        | `build\ProReverb_artefacts\Release\VST3\Tia Reverb.vst3` |
-| Standalone  | `ProReverb_Standalone`  | `build\ProReverb_artefacts\Release\Standalone\Tia Reverb.exe` |
+| VST3        | `ProReverb_VST3`        | `build\ProReverb_artefacts\Release\VST3\TiaVerb.vst3` |
+| Standalone  | `ProReverb_Standalone`  | `build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe` |
 | Batch render| `batch_render`          | `build\Release\batch_render.exe` |
