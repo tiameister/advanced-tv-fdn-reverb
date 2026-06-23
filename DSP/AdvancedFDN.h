@@ -203,9 +203,19 @@ private:
     float decayMidT60_  = 2.5f;  // reverbTimeSec_ * midDecayMult_
     float decayHighT60_ = 0.5f;  // reverbTimeSec_ * hfDecayMult_
 
-    // ── FDN feedback (derived from reverbTime + avgDelay) ────────────────────
+    // ── FDN feedback (kept for monitoring/compatibility; not used in hot path) ─
+    // The actual per-sample loop gain is channelGainCurrent_[i], not this scalar.
     float feedbackTarget_  = 0.85f;
     float feedbackCurrent_ = 0.85f;
+
+    // ── Per-channel loop gains ────────────────────────────────────────────────
+    // Each entry = 10^(−3 · D_i / T60_bass) — targets the LONGEST decay band
+    // so that absorption banks only need to ATTENUATE (gains always ≤ 1).
+    // This ensures every delay line independently achieves the correct T60
+    // regardless of its length, eliminating the modal ringing caused by a
+    // global scalar that over-damps short channels and under-damps long ones.
+    std::array<float, NumChannels> channelGainTarget_{};
+    std::array<float, NumChannels> channelGainCurrent_{};
 
     // ── Modulation ────────────────────────────────────────────────────────────
     float modDepthTargetMs_   = kDefaultModDepthMs;

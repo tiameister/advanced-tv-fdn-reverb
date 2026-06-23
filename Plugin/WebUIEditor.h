@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "PresetManager.h"
 
 /**
  * @file  WebUIEditor.h
@@ -45,7 +46,13 @@ private:
     // Intercepts juce:// URLs in pageAboutToLoad() without leaving the page.
     struct Browser : public juce::WebBrowserComponent
     {
-        explicit Browser(WebUIEditor& owner) : owner_(owner) {}
+        explicit Browser(WebUIEditor& owner)
+            : juce::WebBrowserComponent(
+                  juce::WebBrowserComponent::Options{}
+                      .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
+                      .withKeepPageLoadedWhenBrowserIsHidden()),
+              owner_(owner)
+        {}
 
         bool pageAboutToLoad(const juce::String& newURL) override;
         void pageFinishedLoading(const juce::String& url) override;

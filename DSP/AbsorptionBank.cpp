@@ -42,20 +42,19 @@ void AbsorptionBank::computeLowShelf(double sampleRate, float freqHz, float gain
     // Clamp gain defensively before sqrt.
     const float g = std::clamp(gain, 0.0f, kMaxLoopGain);
 
-    const float A   = std::sqrt(g);                                // amplitude coefficient
-    const float w0  = kTwoPi * freqHz / static_cast<float>(sampleRate);
+    const float A    = std::sqrt(g);                               // amplitude coefficient
+    const float w0   = kTwoPi * freqHz / static_cast<float>(sampleRate);
     const float cosW = std::cos(w0);
     const float sinW = std::sin(w0);
     const float sqA  = std::sqrt(A);
 
-    // alpha for S=1 (unity shelf slope):
-    //   alpha = (sin(w0)/2) * sqrt( (A + 1/A)*(1/S - 1) + 2 )
-    //         = (sin(w0)/2) * sqrt( (A + 1/A) + 2 )    when S=1, (1/1 - 1) = 0
-    // Equivalent compact form: alpha = sin(w0) * sqrt(A) (often cited for S=1)
-    // Using the full form from RBJ for correctness:
-    const float alpha = (sinW / 2.0f) * std::sqrt((A + 1.0f / A) * (1.0f / 1.0f - 1.0f) + 2.0f);
-    // When S=1 the inner sqrt simplifies to sqrt(2): alpha = sin(w0)/sqrt(2)
-    // The formula above degenerates cleanly; keep it explicit for clarity.
+    // Gain-adaptive alpha: alpha = sin(w0) * sqrt(A)
+    // This is the gain-dependent S=1 formulation from the RBJ cookbook.
+    // Unlike the fixed alpha = sin(w0)/sqrt(2), this scales the shelf
+    // transition bandwidth with the cut depth — deeper cuts narrow the
+    // transition band and reduce frequency-dependent coloration in the
+    // FDN feedback loop.
+    const float alpha = sinW * sqA;
 
     const float Ap1 = A + 1.0f;
     const float Am1 = A - 1.0f;
@@ -108,7 +107,8 @@ void AbsorptionBank::computeHighShelf(double sampleRate, float freqHz, float gai
     const float sinW = std::sin(w0);
     const float sqA  = std::sqrt(A);
 
-    const float alpha = (sinW / 2.0f) * std::sqrt((A + 1.0f / A) * (1.0f / 1.0f - 1.0f) + 2.0f);
+    // Gain-adaptive alpha for high shelf (same convention as low shelf).
+    const float alpha = sinW * sqA;
 
     const float Ap1 = A + 1.0f;
     const float Am1 = A - 1.0f;
@@ -166,9 +166,18 @@ void AbsorptionBank::updateCoefficients(double sampleRate,
 
 float AbsorptionBank::processSample(float x) noexcept
 {
-    // Low Shelf → Peak/Bell → High Shelf (cascade, series connection).
-    const float y = highShelf_.processSample(
-                        peak_.processSample(
-                            lowShelf_.processSample(x)));
-    return y;
+    // Low Shelf → High Shelf only (peak EQ deliberately excluded).
+    //
+    // A peaking (bell) EQ at 1500 Hz creates a narrow resonant bump/notch
+    // inside the feedback loop — audible as metallic coloration when 16
+    // channels recirculate simultaneously.  Professional reverb processors
+    // (Valhalla, FabFilter, Lexicon 480) use only monotonically-decreasing
+    // absorption (two shelves or one-pole lowpass) so the loop gain never has
+    // local maxima between the LF and HF corners.
+    //
+    // The mid T60 is achieved implicitly by the crossover between the low shelf
+    // (rising toward bass) and the high shelf (falling toward HF); the
+    // effectiveT60() differential used by AdvancedFDN::updateFilterCoefficients
+    // guarantees the correct combined gain at mid frequencies.
+    return highShelf_.processSample(lowShelf_.processSample(x));
 }

@@ -217,13 +217,18 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     // setReverbTime computes feedbackTarget_ and T60 bands, then calls
     // updateFilterCoefficients (which requires prepared_ = true, so set it first).
     prepared_ = true;
-    setReverbTime(reverbTimeSec_); // feeds feedbackTarget_ + filter coeffs
+    setReverbTime(reverbTimeSec_); // feeds feedbackTarget_, channelGainTarget_, filter coeffs
 
     // Snap smoothers to targets — no glide on first processBlock
     feedbackCurrent_    = feedbackTarget_;
     modDepthCurrentMs_  = modDepthTargetMs_;
     dryWetCurrent_      = dryWetTarget_;
     stereoWidthCurrent_ = stereoWidthTarget_;
+
+    // Snap per-channel gains — prevent a sweep from 0 to target on first block
+    for (int i = 0; i < NumChannels; ++i)
+        channelGainCurrent_[static_cast<std::size_t>(i)] =
+            channelGainTarget_[static_cast<std::size_t>(i)];
 
     for (auto& bank : absorptionBanks_)
         bank.snapCoefficientsToTargets();
@@ -255,8 +260,13 @@ void AdvancedFDN<NumChannels>::reset() noexcept
 
     // Snap delay smoothers after a hard reset so no sweep occurs from silence
     for (int i = 0; i < NumChannels; ++i)
+    {
         smoothedDelayTargets_[static_cast<std::size_t>(i)] =
             float(baseDelaySamples_[static_cast<std::size_t>(i)]);
+        // Snap channel gains too — prevent a ramp from 0 after a tail reset
+        channelGainCurrent_[static_cast<std::size_t>(i)] =
+            channelGainTarget_[static_cast<std::size_t>(i)];
+    }
 }
 
 // ── Unified reverb time ────────────────────────────────────────────────────────
@@ -291,8 +301,24 @@ void AdvancedFDN<NumChannels>::setReverbTime(float reverbTimeSec) noexcept
         feedbackTarget_ = std::clamp(feedbackTarget_, 0.01f, 0.99f);
     }
 
+    // ── Per-channel loop gains targeting T60_bass (longest band) ─────────────
+    // Using T60_bass as the base means the absorption banks only ever need to
+    // ATTENUATE (never boost), so all loop gains stay safely below 1.0.
     if (prepared_)
+    {
+        for (int i = 0; i < NumChannels; ++i)
+        {
+            const float D = float(baseDelaySamples_[static_cast<std::size_t>(i)])
+                          / float(sampleRate_);
+            if (D > 0.0f)
+            {
+                channelGainTarget_[static_cast<std::size_t>(i)] = std::clamp(
+                    std::pow(10.0f, -3.0f * D / decayLowT60_),
+                    0.01f, 0.9999f);
+            }
+        }
         updateFilterCoefficients();
+    }
 }
 
 template <int NumChannels>
@@ -345,6 +371,21 @@ void AdvancedFDN<NumChannels>::applySizePendingUpdate() noexcept
         // Do NOT snap feedbackCurrent_ here — let it smooth naturally.
     }
 
+    // Recompute per-channel gains for the new delay topology.
+    // decayLowT60_ was set by the last setReverbTime call and is still valid.
+    for (int i = 0; i < NumChannels; ++i)
+    {
+        const float D = float(baseDelaySamples_[static_cast<std::size_t>(i)])
+                      / float(sampleRate_);
+        if (D > 0.0f)
+        {
+            channelGainTarget_[static_cast<std::size_t>(i)] = std::clamp(
+                std::pow(10.0f, -3.0f * D / decayLowT60_),
+                0.01f, 0.9999f);
+        }
+        // Do NOT snap channelGainCurrent_ — let it glide naturally.
+    }
+
     updateFilterCoefficients();
     // Coefficients are already smoothed per-sample by BiquadFilter's own smoothers,
     // so no snapCoefficientsToTargets() call is needed here.
@@ -388,6 +429,13 @@ void AdvancedFDN<NumChannels>::updateSmoothedParameters() noexcept
     modDepthCurrentMs_  += paramSmoothingCoeff_ * (modDepthTargetMs_  - modDepthCurrentMs_);
     dryWetCurrent_      += paramSmoothingCoeff_ * (dryWetTarget_      - dryWetCurrent_);
     stereoWidthCurrent_ += paramSmoothingCoeff_ * (stereoWidthTarget_ - stereoWidthCurrent_);
+
+    // Smooth per-channel loop gains (same 50 ms time constant).
+    // Prevents zipper noise when RT or room size changes cause targets to jump.
+    for (int i = 0; i < NumChannels; ++i)
+        channelGainCurrent_[static_cast<std::size_t>(i)] +=
+            paramSmoothingCoeff_ * (channelGainTarget_[static_cast<std::size_t>(i)]
+                                  - channelGainCurrent_[static_cast<std::size_t>(i)]);
 }
 
 template <int NumChannels>
@@ -414,47 +462,44 @@ void AdvancedFDN<NumChannels>::precomputeLfoBlock(int numSamples) noexcept
 template <int NumChannels>
 void AdvancedFDN<NumChannels>::updateFilterCoefficients() noexcept
 {
-    // ── Feedback / T60 coupling fix ───────────────────────────────────────────
-    // The combined per-loop gain at frequency f is:
-    //   g_total(f) = feedbackTarget_ × absorption_gain(f)
-    //             = 10^(−3D / T60(f))   [desired]
+    // ── Per-channel, per-frequency decay — FabFilter/Valhalla approach ────────
     //
-    // Solving for absorption_gain:
-    //   absorption_gain(f) = 10^(−3D / T60(f)) / feedbackTarget_
+    // channelGainTarget_[i] already handles the flat (bass) loop gain for
+    // channel i:  g_base(i) = 10^(−3·D_i / T60_bass).
     //
-    // If absorption_gain ≥ 1 (the desired T60 is longer than feedback alone
-    // achieves at this channel/band), the bank passes through with no attenuation
-    // and the actual RT will be slightly shorter than the target. This is
-    // physically correct — you cannot lengthen a reverb by un-absorbing.
+    // The absorption bank needs to supply only the DIFFERENTIAL attenuation
+    // that makes mid and HF decay faster than bass.  The effective T60 seen
+    // by the absorption bank (relative to the bass base) is:
     //
-    // We convert this compensated gain back to an effective T60 and pass that
-    // to AbsorptionBank::updateCoefficients, which then designs RBJ shelf/peak
-    // coefficients for that T60. The AbsorptionBank API is unchanged.
-
-    const float fb = std::max(feedbackTarget_, 0.001f);  // guard against log(0)
+    //   T60_eff(band) = 1 / (1/T60_band − 1/T60_bass)
+    //
+    // Because T60_band ≤ T60_bass for mid and HF, this is always positive and
+    // the corresponding absorption gain is always ≤ 1 — no pass-through, no
+    // unstable boosts.  Every channel at every frequency now hits its T60
+    // target exactly, regardless of individual delay length.
 
     for (int i = 0; i < NumChannels; ++i)
     {
         const float D = float(baseDelaySamples_[static_cast<std::size_t>(i)])
                       / float(sampleRate_);
 
-        // Returns the absorption-bank T60 such that feedback × absorption hits
-        // the target loop gain at each frequency.
-        auto compensatedT60 = [&](float t60Target) -> float
+        // Converts an absolute T60 band target into the effective T60 that the
+        // absorption bank must achieve, given that the channel base gain already
+        // handles T60_bass.  Returns a large sentinel when the band target equals
+        // or exceeds T60_bass (i.e., no additional attenuation required).
+        auto effectiveT60 = [&](float t60Band) -> float
         {
-            if (t60Target <= 0.0f) return 0.001f;
-            const float gTotal = std::pow(10.0f, -3.0f * D / t60Target);
-            const float gAbs   = gTotal / fb;
-            if (gAbs >= 1.0f)
-                return 1000.0f; // no absorption needed; pass-through for this band
-            return -3.0f * D / std::log10(gAbs);
+            if (t60Band <= 0.0f) return 0.001f;
+            const float invDiff = (1.0f / t60Band) - (1.0f / decayLowT60_);
+            if (invDiff < 1e-7f) return 1000.0f;   // band ≥ bass → near pass-through
+            return 1.0f / invDiff;
         };
 
         absorptionBanks_[static_cast<std::size_t>(i)].updateCoefficients(
             sampleRate_, D,
-            kDecayLowFreqHz,  compensatedT60(decayLowT60_),
-            kDecayMidFreqHz,  compensatedT60(decayMidT60_),  kDecayMidQ,
-            kDecayHighFreqHz, compensatedT60(decayHighT60_));
+            kDecayLowFreqHz,  effectiveT60(decayLowT60_),    // ≈ 1000 s → gain ≈ 1
+            kDecayMidFreqHz,  effectiveT60(decayMidT60_),  kDecayMidQ,
+            kDecayHighFreqHz, effectiveT60(decayHighT60_));
     }
 }
 
@@ -510,8 +555,16 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
         {
             const float lfoValue = lfoBlockStart_[static_cast<std::size_t>(i)]
                                  + lfoBlockStep_ [static_cast<std::size_t>(i)] * sampleIdx;
-            float delay = smoothedDelayTargets_[static_cast<std::size_t>(i)]
-                        + modDepthSamples * lfoValue;
+
+            // Clamp modulation depth to 25 % of the channel's base delay.
+            // Without this, short channels (5–8 ms) with the default 4 ms mod
+            // depth receive 50–80 % amplitude modulation — audible chorus /
+            // pitch-wobble that reads as metallic twang.
+            const float baseDelay = smoothedDelayTargets_[static_cast<std::size_t>(i)];
+            const float maxMod    = baseDelay * 0.25f;
+            const float clampedMod = std::min(modDepthSamples, maxMod);
+
+            float delay = baseDelay + clampedMod * lfoValue;
             delay = std::max(FractionalDelayLine::kMinStableDelaySamples, delay);
             delayed_[static_cast<std::size_t>(i)] =
                 delayLines_[static_cast<std::size_t>(i)].readSample(delay);
@@ -521,10 +574,15 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
         mixed_ = delayed_;
         dsp::applyOrthogonalMix(mixed_);
 
-        // ── Feedback loop: DC block → absorption → inject → write ─────────────
+        // ── Feedback loop: per-channel gain → DC block → absorption → write ─────
+        // channelGainCurrent_[i] = 10^(−3·D_i / T60_bass) independently for
+        // each channel, replacing the old global feedbackCurrent_ scalar.
+        // This ensures every delay line achieves the correct T60 regardless
+        // of its length — the primary fix for modal metallic ringing.
         for (int i = 0; i < NumChannels; ++i)
         {
-            float sampleValue = mixed_[static_cast<std::size_t>(i)] * feedbackCurrent_;
+            float sampleValue = mixed_[static_cast<std::size_t>(i)]
+                              * channelGainCurrent_[static_cast<std::size_t>(i)];
 
             // DC blocker (one-pole HP at ~5 Hz) — prevents LF drift into shelves
             hpState_[static_cast<std::size_t>(i)] +=

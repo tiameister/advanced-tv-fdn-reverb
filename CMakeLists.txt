@@ -42,7 +42,7 @@ target_link_libraries(decay_smoke_test PRIVATE tvfdn_dsp)
 #              git submodule update --init --recursive
 #
 # Fallback: set -DJUCE_DIR=/path/to/JUCE on the cmake command line to point
-# at any JUCE 7.x installation, or let FetchContent download it automatically.
+# at any JUCE 8.x installation, or let FetchContent download it automatically.
 
 option(BUILD_VST3         "Build the VST3 plugin target (requires JUCE)" ON)
 option(BUILD_BATCH_RENDER "Build batch_render WAV tool (requires JUCE)" ON)
@@ -62,7 +62,7 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
         include(FetchContent)
         FetchContent_Declare(JUCE
             GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-            GIT_TAG        7.0.12
+            GIT_TAG        8.0.6
             GIT_SHALLOW    TRUE)
         FetchContent_MakeAvailable(JUCE)
     endif()
@@ -81,6 +81,8 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
         NEEDS_MIDI_OUTPUT         FALSE
         IS_MIDI_EFFECT            FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+        NEEDS_WEB_BROWSER         TRUE
+        NEEDS_WEBVIEW2            TRUE
         COPY_PLUGIN_AFTER_BUILD   FALSE
         VST3_CATEGORIES           "Fx" "Reverb"
     )
@@ -120,6 +122,11 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
         $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
     )
+
+    # WebUIEditor uses evaluateJavascript(), which requires WebView2 on Windows.
+    if(WIN32)
+        target_compile_definitions(ProReverb PRIVATE JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1)
+    endif()
 
     target_link_libraries(ProReverb
         PRIVATE
