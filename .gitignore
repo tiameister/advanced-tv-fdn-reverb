@@ -1,0 +1,22 @@
+# --- Cursor ve Mimari Plan Dosyaları (GitHub'a gitmeyecekler) ---
+rules.md
+project_vision.md
+.cursorrules
+
+# --- C++ / JUCE / IDE Derleme Artıkları ---
+/Builds/
+/Build/
+/.vs/
+/out/
+/DerivedData/
+*.user
+*.suo
+*.ncb
+*.opensdf
+*.sdf
+*.cache
+*.juce
+
+# İşletim sistemi artıkları
+.DS_Store
+Thumbs.db
