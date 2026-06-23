@@ -113,6 +113,14 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
 
     injectionNorm_ = dsp::orthogonalNormalization(static_cast<std::size_t>(NumChannels));
 
+    // ── Absorption banks (one per FDN channel) ────────────────────────────────
+    for (int i = 0; i < NumChannels; ++i)
+        absorptionBanks_[static_cast<std::size_t>(i)].prepare(sampleRate);
+
+    // Snap biquad coefficient smoothers to initial decay-EQ targets so the
+    // very first processBlock call produces no transient glide in the filters.
+    updateFilterCoefficients();
+
     constexpr float smoothingTimeSeconds = 0.05f;
     paramSmoothingCoeff_ = 1.0f - std::exp(-1.0f / (smoothingTimeSeconds * static_cast<float>(sampleRate_)));
 
@@ -135,6 +143,9 @@ void AdvancedFDN<NumChannels>::reset() noexcept
 
     for (auto& lfo : lfos_)
         lfo.reset();
+
+    for (auto& bank : absorptionBanks_)
+        bank.reset();
 
     hpState_.fill(0.0f);
     delayed_.fill(0.0f);
@@ -247,6 +258,13 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
                 hpCoeff_ * (sampleValue - hpState_[static_cast<std::size_t>(i)]);
             sampleValue -= hpState_[static_cast<std::size_t>(i)];
 
+            // ── Multi-band absorption (Phase 3: frequency-dependent decay) ───
+            // Inserted AFTER DC blocker (no DC offset enters the shelf filters),
+            // BEFORE dry injection (only the feedback signal is absorbed, not
+            // the newly-arriving dry sound). Each channel has its own bank so
+            // T60 scales correctly with each delay line's loop time.
+            sampleValue = absorptionBanks_[static_cast<std::size_t>(i)].processSample(sampleValue);
+
             const float channelIn = ((i % 2) == 0) ? dryLeft : dryRight;
             const float injected = sampleValue + channelIn * norm;
             delayLines_[static_cast<std::size_t>(i)].writeSample(injected);
@@ -265,4 +283,46 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
     }
 
     lfoBlockPrecomputed_ = false;
+}
+
+// ── Phase 3: Frequency-Dependent Decay ───────────────────────────────────────
+
+template <int NumChannels>
+void AdvancedFDN<NumChannels>::updateFilterCoefficients() noexcept
+{
+    for (int i = 0; i < NumChannels; ++i)
+    {
+        // Convert this channel's integer delay length to seconds.
+        // Each channel has a unique loop time, so the per-loop attenuation
+        // required to hit a target T60 differs per channel — this is what
+        // gives the reverb its naturally varied spectral density.
+        const float channelDelayTimeSec =
+            static_cast<float>(baseDelaySamples_[static_cast<std::size_t>(i)])
+            / static_cast<float>(sampleRate_);
+
+        absorptionBanks_[static_cast<std::size_t>(i)].updateCoefficients(
+            sampleRate_,
+            channelDelayTimeSec,
+            decayLowFreq_,  decayLowT60_,
+            decayMidFreq_,  decayMidT60_,  decayMidQ_,
+            decayHighFreq_, decayHighT60_);
+    }
+}
+
+template <int NumChannels>
+void AdvancedFDN<NumChannels>::setDecayEQ(float lowFreq,  float lowT60,
+                                          float midFreq,  float midT60,
+                                          float highFreq, float highT60) noexcept
+{
+    decayLowFreq_  = std::max(20.0f,  lowFreq);
+    decayLowT60_   = std::max(0.001f, lowT60);
+    decayMidFreq_  = std::max(20.0f,  midFreq);
+    decayMidT60_   = std::max(0.001f, midT60);
+    decayHighFreq_ = std::max(20.0f,  highFreq);
+    decayHighT60_  = std::max(0.001f, highT60);
+
+    // Recompute per-channel gains and push new coefficient targets to the
+    // biquad smoothers. The audio thread picks up the changes within ~20 ms
+    // (the BiquadFilter coefficient smoothing time constant).
+    updateFilterCoefficients();
 }

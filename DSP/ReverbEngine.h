@@ -16,7 +16,7 @@
  *   Dry L ──────────────────────────────────────────────────────────────────────────────────────┐
  *           │                                                                                    │
  *           └──► FractionalDelayLine ──► delayedL ──┬──► EarlyReflections ──► erOutL ──► erGain ──┐
- *                 (Thiran allpass)                  │                                              + ──► wetL
+ *                 (Cubic Hermite interp.)           │                                              + ──► wetL
  *                 (per-sample smoothed delay)        └──► FDN input ──► TVFDNEngine ──► fdnOutL ──► tailGain ─┘
  *
  *   (same topology for R)
