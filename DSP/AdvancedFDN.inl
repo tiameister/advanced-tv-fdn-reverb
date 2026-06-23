@@ -114,7 +114,7 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     {
         const float sign = (i % 2 == 0) ? 1.0f : -1.0f;
         inputInjection_[static_cast<std::size_t>(i)] = sign * norm;
-        outputWeights_[static_cast<std::size_t>(i)] = norm;
+        outputWeights_[static_cast<std::size_t>(i)] = sign * norm;
     }
 
     constexpr float smoothingTimeSeconds = 0.05f;
@@ -232,7 +232,8 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
         mixed_ = delayed_;
         dsp::applyOrthogonalMix(mixed_);
 
-        float wet = 0.0f;
+        float wetLeft = 0.0f;
+        float wetRight = 0.0f;
         for (int i = 0; i < NumChannels; ++i)
         {
             float sampleValue = mixed_[static_cast<std::size_t>(i)] * feedbackCurrent_;
@@ -244,13 +245,19 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
             const float injected = sampleValue + inputInjection_[static_cast<std::size_t>(i)] * monoIn;
             delayLines_[static_cast<std::size_t>(i)].writeSample(injected);
 
-            wet += delayed_[static_cast<std::size_t>(i)] * outputWeights_[static_cast<std::size_t>(i)];
+            const float tap = delayed_[static_cast<std::size_t>(i)] * outputWeights_[static_cast<std::size_t>(i)];
+            if ((i % 2) == 0)
+                wetLeft += tap;
+            else
+                wetRight += tap;
         }
 
-        const float dry = 0.5f * (left[sample] + right[sample]);
-        const float output = dry * (1.0f - dryWetCurrent_) + wet * dryWetCurrent_;
-        outLeft[sample] = output;
-        outRight[sample] = output;
+        const float dryLeft = left[sample];
+        const float dryRight = right[sample];
+        const float wetMix = dryWetCurrent_;
+        const float dryMix = 1.0f - dryWetCurrent_;
+        outLeft[sample] = dryLeft * dryMix + wetLeft * wetMix;
+        outRight[sample] = dryRight * dryMix + wetRight * wetMix;
     }
 
     lfoBlockPrecomputed_ = false;

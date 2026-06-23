@@ -10,7 +10,7 @@
 class FractionalDelayLine
 {
 public:
-    static constexpr float kMinStableDelaySamples = 0.6f;
+    static constexpr float kMinStableDelaySamples = 1.6f;
 
     FractionalDelayLine() = default;
 

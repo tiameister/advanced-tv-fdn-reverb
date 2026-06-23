@@ -26,7 +26,8 @@ void FractionalDelayLine::writeSample(float sample) noexcept
 
 float FractionalDelayLine::readSample(float delayInSamples) noexcept
 {
-    // Thiran is unstable below 0.5 samples; enforce a safety margin.
+    // Thiran is unstable below 0.5 samples; readIndex+1 must stay behind writeIndex_
+    // in read-before-write FDN loops, so enforce integer delay >= 1 with margin.
     delayInSamples = std::max(kMinStableDelaySamples, delayInSamples);
 
     const int delayInt = static_cast<int>(delayInSamples);
