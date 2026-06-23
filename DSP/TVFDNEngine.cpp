@@ -27,9 +27,21 @@ void TVFDNEngine::processBlock(const float* left,
     fdn_.processBlock(left, right, outLeft, outRight, numSamples);
 }
 
-void TVFDNEngine::setFeedback(float feedback) noexcept
+void TVFDNEngine::setReverbTime(float reverbTimeSec) noexcept
 {
-    fdn_.setFeedback(feedback);
+    fdn_.setReverbTime(reverbTimeSec);
+}
+
+void TVFDNEngine::setDecayShape(float bassDecayMult,
+                                float midDecayMult,
+                                float hfDecayMult) noexcept
+{
+    fdn_.setDecayShape(bassDecayMult, midDecayMult, hfDecayMult);
+}
+
+void TVFDNEngine::setSize(float size) noexcept
+{
+    fdn_.setSize(size);
 }
 
 void TVFDNEngine::setModDepth(float depthSamples) noexcept
@@ -42,19 +54,12 @@ void TVFDNEngine::setDryWet(float mix) noexcept
     fdn_.setDryWet(mix);
 }
 
-void TVFDNEngine::setModRates(const std::array<float, 16>& ratesHz) noexcept
-{
-    fdn_.setModRates(ratesHz);
-}
-
-void TVFDNEngine::setDecayEQ(float lowFreq,  float lowT60,
-                             float midFreq,  float midT60,
-                             float highFreq, float highT60) noexcept
-{
-    fdn_.setDecayEQ(lowFreq, lowT60, midFreq, midT60, highFreq, highT60);
-}
-
 void TVFDNEngine::setStereoWidth(float width) noexcept
 {
     fdn_.setStereoWidth(width);
+}
+
+void TVFDNEngine::setModRates(const std::array<float, 16>& ratesHz) noexcept
+{
+    fdn_.setModRates(ratesHz);
 }

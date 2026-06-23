@@ -4,61 +4,47 @@
 #include "FractionalDelayLine.h"
 #include "TVFDNEngine.h"
 
+#include <atomic>
 #include <cstdint>
 #include <vector>
 
 /**
- * Top-level reverb engine facade (Phase 1 + Phase 2).
+ * Top-level reverb engine facade.
  *
- * Signal chain
- * ────────────
+ * Signal chain (decoupled ER / FDN paths)
+ * ────────────────────────────────────────
  *
- *                                                     ┌──► EarlyReflections ──► erOutL ──┐
- *   Dry L ──► FractionalDelayLine ──► delayedL ───────┤                                  ├─(Distance)─► wetL
- *             (Cubic Hermite interp.)                 └──► TVFDNEngine ──────────────────┘
- *             (per-sample smoothed delay)                   (16-ch TV-FDN, post-FWHT tap,
- *                                                            M/S stereo width)
- *   (same topology for R)
+ *                                    ┌──► EarlyReflections ──► erOutL ──┐
+ *   Dry L ──► FractionalDelayLine ──►┤                                  ├─(Distance)─► wetL
+ *             (Cubic Hermite)        └──► TVFDNEngine ─────────────────►┘
+ *                                         (16-ch TV-FDN, post-FWHT tap,
+ *                                          M/S stereo width)
+ *   (same for R)
  *
- * ER / FDN decoupling (critical for spatial clarity)
- * ────────────────────────────────────────────────────
- * The FDN is seeded with delayedL/R ONLY — not with erOutL/R.
- * Coupling ER into the FDN input would make early energy appear twice:
- *   (1) in the output Distance crossfade, and
- *   (2) as a seeded component of the diffuse tail.
- * That duplication blurs the ER/tail boundary that Distance controls.
- * Keeping the paths separate lets Distance crossfade cleanly between
- * a "close, room-shaped" early field and an "ambient, diffuse" late tail.
+ * ER / FDN decoupling
+ * ────────────────────
+ * The FDN is seeded with the pre-delayed dry signal ONLY.  ER is NOT fed into
+ * the FDN — doing so would cause early energy to appear twice (once in the
+ * Distance crossfade and once as a re-emergent diffuse tail), blurring the
+ * clean ER/tail staging that Distance is designed to control.
  *
- * Output tap topology (post-FWHT, in AdvancedFDN)
- * ─────────────────────────────────────────────────
- * The FDN tank is decoded from mixed_[i] (post-FWHT) rather than
- * raw delay reads, so each output sample is a diffuse blend of all 16
- * channels — producing the enveloping spatial field of professional reverbs.
+ * Unified Reverb Time
+ * ────────────────────
+ * setReverbTime() drives FDN feedback + all T60 band targets in one call.
+ * setDecayShape() controls spectral tilt as multipliers relative to reverbTime.
+ * FDN feedback is an internal implementation detail, not exposed to the user.
  *
- * The master dry signal is undelayed, preserving the original transient.
- *
- * Pre-delay automation (Doppler glide)
- * ─────────────────────────────────────
- * setPreDelayMs() writes to preDelayMsTarget_. A one-pole lowpass advances
- * preDelayMsCurrent_ toward the target one sample at a time. Because
- * FractionalDelayLine::readSample() accepts a float, a slowly-changing read
- * position produces a smooth, tape-style pitch glide — no clicks.
- *
- * Distance automation (zipper-free crossfade)
- * ────────────────────────────────────────────
- * setDistance() writes to distanceTarget_. A one-pole lowpass advances
- * distanceCurrent_ per sample inside processBlock. erGain and tailGain are
- * recomputed from distanceCurrent_ on every sample — no jumps possible.
- * Equal-power crossfade: erGain = cos(d * π/2), tailGain = sin(d * π/2).
- * At d=0.5 both channels are at 0.707 (–3 dB) — no dip in perceived loudness.
+ * Early Reflections update
+ * ─────────────────────────
+ * setErLength() and setErDensity() store new values and raise erNeedsUpdate_.
+ * At the top of the next processBlock() the ER is re-prepared.  This causes a
+ * brief audio reset acceptable for these non-automated room-character parameters.
  *
  * Real-time constraints
  * ─────────────────────
- *   • All scratch buffers and FDLs sized in prepare(); never reallocated.
- *   • processBlock() is allocation-free and lock-free.
- *   • No malloc in the audio thread.
- *   • sin()/cos() called once per sample for distance equal-power crossfade only.
+ *   • All scratch buffers sized in prepare(); never reallocated.
+ *   • processBlock() is allocation-free and lock-free (except for the one-shot
+ *     ER re-prepare on a parameter change, which uses std::vector::resize).
  */
 class ReverbEngine
 {
@@ -91,12 +77,47 @@ public:
     /** In-place stereo processing. left/right are read AND written. */
     void processBlock(float* left, float* right, int numSamples) noexcept;
 
-    // ── Parameter setters ────────────────────────────────────────────────────
+    // ── Unified reverb time ──────────────────────────────────────────────────
 
     /**
-     * Automate the global pre-delay (0–500 ms).
-     * Sets the target; smoothed per-sample in processBlock → tape-style Doppler
-     * glide when modulated, zero clicks on step changes.
+     * Set perceived reverb time [0.1, 20 s].
+     * Internally drives FDN feedback + all T60 band targets.
+     */
+    void setReverbTime(float rt) noexcept { fdn_.setReverbTime(rt); }
+
+    /**
+     * Set spectral-tilt multipliers relative to reverbTime.
+     * @param bassDecayMult  lowT60  = rt × bass  [0.5, 3.0]  default 1.4
+     * @param midDecayMult   midT60  = rt × mid   [0.5, 2.0]  default 1.0
+     * @param hfDecayMult    highT60 = rt × hf    [0.05, 1.0] default 0.2
+     */
+    void setDecayShape(float bassDecayMult, float midDecayMult, float hfDecayMult) noexcept
+    {
+        fdn_.setDecayShape(bassDecayMult, midDecayMult, hfDecayMult);
+    }
+
+    // ── Room size & character ────────────────────────────────────────────────
+
+    /** Scale FDN delay topology (0 = small room, 0.33 = medium, 1 = cathedral). */
+    void setSize(float size) noexcept { fdn_.setSize(size); }
+
+    /**
+     * ER window length [20, 200 ms]. Triggers ER re-prepare on the next block.
+     * Non-automatable (quasi-static room character parameter).
+     */
+    void setErLength(float ms) noexcept;
+
+    /**
+     * ER tap density [500, 8000 Hz]. Triggers ER re-prepare on the next block.
+     * Non-automatable (quasi-static room character parameter).
+     */
+    void setErDensity(float hz) noexcept;
+
+    // ── Global parameters (smoothed per-sample) ───────────────────────────────
+
+    /**
+     * Global pre-delay (0–500 ms).
+     * Smoothed per-sample → tape-style Doppler glide on automation.
      */
     void setPreDelayMs(float ms) noexcept
     {
@@ -105,54 +126,22 @@ public:
 
     /**
      * Distance (0..1) — equal-power crossfade between ER and FDN tail.
-     * Sets the target; smoothed per-sample in processBlock → zipper-free.
-     *   0 = close (ER dominates), 0.5 = balanced (–3 dB each), 1 = far (tail dominates).
+     * 0 = close (ER dominates), 1 = far (tail dominates).
+     * Smoothed per-sample → zipper-free under automation.
      */
-    void setDistance(float d) noexcept
-    {
-        distanceTarget_ = std::clamp(d, 0.0f, 1.0f);
-    }
+    void setDistance(float d) noexcept { distanceTarget_ = std::clamp(d, 0.0f, 1.0f); }
     float distance() const noexcept { return distanceTarget_; }
 
-    /**
-     * Master wet level (0 = dry only, 1 = wet only).
-     * Sets the target; smoothed per-sample → zipper-free under automation.
-     */
+    /** Master wet level (0 = dry only, 1 = wet only). Smoothed per-sample. */
     void setMasterWet(float wet) noexcept { masterWetTarget_ = std::clamp(wet, 0.0f, 1.0f); }
-
-    /** FDN feedback (0..0.99). */
-    void setFdnFeedback(float g) noexcept { fdn_.setFeedback(g); }
 
     /** FDN LFO modulation depth (samples). */
     void setFdnModDepth(float d) noexcept { fdn_.setModDepth(d); }
 
-    /**
-     * FDN output stereo width via M/S matrix (0 = mono, 1 = natural, 2 = hyper-wide).
-     * Smoothed per-sample to prevent clicks on automation.
-     */
+    /** FDN output stereo width via M/S matrix (0 = mono, 1 = natural, 2 = hyper-wide). */
     void setFdnStereoWidth(float w) noexcept { fdn_.setStereoWidth(w); }
 
-    /**
-     * Frequency-dependent decay EQ (Phase 3).
-     * Delegates to AdvancedFDN::setDecayEQ which recomputes per-channel
-     * T60 gains and updates the AbsorptionBank coefficient smoothers.
-     * Safe to call from the UI thread at any time.
-     *
-     * @param lowFreq   Low-shelf corner (Hz).          Default: 250 Hz
-     * @param lowT60    Bass T60 (s, > 0).              Default: 3.0 s
-     * @param midFreq   Mid peak centre (Hz).           Default: 1500 Hz
-     * @param midT60    Mid T60 (s, > 0).               Default: 2.0 s
-     * @param highFreq  High-shelf corner (Hz).         Default: 5000 Hz
-     * @param highT60   HF T60 (s, > 0).               Default: 0.8 s
-     */
-    void setDecayEQ(float lowFreq,  float lowT60,
-                    float midFreq,  float midT60,
-                    float highFreq, float highT60) noexcept
-    {
-        fdn_.setDecayEQ(lowFreq, lowT60, midFreq, midT60, highFreq, highT60);
-    }
-
-    // ── Sub-module access (diagnostics / smoke tests) ────────────────────────
+    // ── Sub-module access (diagnostics / tests) ──────────────────────────────
     const EarlyReflections& earlyReflections() const noexcept { return er_; }
     const TVFDNEngine&       fdn()             const noexcept { return fdn_; }
 
@@ -162,23 +151,25 @@ private:
     EarlyReflections    er_;
     TVFDNEngine         fdn_;
 
-    // ── Fractional pre-delay lines (one per channel) ─────────────────────────
-    // Sized for kMaxPreDelayMs in prepare(). Automatable with Doppler glide.
+    // ── Fractional pre-delay lines ────────────────────────────────────────────
     FractionalDelayLine preDelayL_;
     FractionalDelayLine preDelayR_;
 
-    // ── Pre-delay smoothing state ─────────────────────────────────────────────
+    // ── Pre-delay smoothing ───────────────────────────────────────────────────
     float preDelayMsTarget_  = 0.0f;
     float preDelayMsCurrent_ = 0.0f;
-    float preDelaySmCoeff_   = 0.0f; // one-pole coefficient (~30 ms time constant)
+    float preDelaySmCoeff_   = 0.0f;
 
-    // ── Distance smoothing state ──────────────────────────────────────────────
-    float distanceTarget_    = 0.5f;
-    float distanceCurrent_   = 0.5f;
-    float distanceSmoothCoeff_ = 0.0f; // one-pole coefficient (~50 ms time constant)
+    // ── Distance + masterWet smoothing ───────────────────────────────────────
+    float distanceTarget_      = 0.5f;
+    float distanceCurrent_     = 0.5f;
+    float distanceSmoothCoeff_ = 0.0f;
+    float masterWetTarget_     = 1.0f;
+    float masterWetCurrent_    = 1.0f;
+    float masterWetSmCoeff_    = 0.0f;
 
-    // ── Scratch buffers (all sized in prepare) ───────────────────────────────
-    std::vector<float> delayedL_;   // pre-delayed input → ER + FDN
+    // ── Scratch buffers (sized in prepare) ───────────────────────────────────
+    std::vector<float> delayedL_;
     std::vector<float> delayedR_;
     std::vector<float> erOutL_;
     std::vector<float> erOutR_;
@@ -187,14 +178,16 @@ private:
     std::vector<float> fdnOutL_;
     std::vector<float> fdnOutR_;
 
-    // ── Engine state ─────────────────────────────────────────────────────────
-    double sampleRate_      = 44100.0;
-    int    maxBlockSize_    = 0;
+    // ── ER parameters (stored for re-prepare) ────────────────────────────────
+    float         erLengthMs_      = 80.0f;
+    float         erDensityHz_     = 3000.0f;
+    float         erMinSpacingMs_  = 1.0f;
+    std::uint32_t erSeedL_         = 0xABCD1234u;
+    std::uint32_t erSeedR_         = 0x5678EF90u;
+    std::atomic<bool> erNeedsUpdate_{false};
 
-    // Master wet — target/current pair for zipper-free DAW automation
-    float  masterWetTarget_  = 1.0f;
-    float  masterWetCurrent_ = 1.0f;
-    float  masterWetSmCoeff_ = 0.0f; // one-pole coefficient (~50 ms time constant)
-
-    bool   prepared_    = false;
+    // ── Engine state ──────────────────────────────────────────────────────────
+    double sampleRate_   = 44100.0;
+    int    maxBlockSize_ = 0;
+    bool   prepared_     = false;
 };

@@ -17,22 +17,28 @@ public:
     void reset() noexcept;
 
     void processBlock(float* left, float* right, int numSamples) noexcept;
-    void processBlock(const float* left, const float* right, float* outLeft, float* outRight, int numSamples) noexcept;
+    void processBlock(const float* left, const float* right,
+                      float* outLeft, float* outRight,
+                      int numSamples) noexcept;
 
-    void setFeedback(float feedback) noexcept;
-    void setModDepth(float depthSamples) noexcept;
-    void setDryWet(float mix) noexcept;
-    void setModRates(const std::array<float, 16>& ratesHz) noexcept;
+    // ── Unified reverb time (primary length control) ────────────────────────
+    /** Set perceived reverb time [0.1, 20 s]. Drives feedback + T60 bands. */
+    void setReverbTime(float reverbTimeSec) noexcept;
 
-    /** Frequency-dependent decay EQ — delegates to AdvancedFDN::setDecayEQ. */
-    void setDecayEQ(float lowFreq,  float lowT60,
-                    float midFreq,  float midT60,
-                    float highFreq, float highT60) noexcept;
+    /** Set spectral-tilt multipliers relative to reverbTime. */
+    void setDecayShape(float bassDecayMult, float midDecayMult, float hfDecayMult) noexcept;
 
-    /** M/S stereo width of the FDN output — delegates to AdvancedFDN::setStereoWidth. */
-    void setStereoWidth(float width) noexcept;
+    // ── Room size ────────────────────────────────────────────────────────────
+    /** Scale delay topology (0 = small room, 0.33 = medium, 1 = cathedral). */
+    void setSize(float size) noexcept;
 
-    AdvancedFDN<16>& getFDN() noexcept { return fdn_; }
+    // ── Modulation & output ──────────────────────────────────────────────────
+    void setModDepth   (float depthSamples) noexcept;
+    void setDryWet     (float mix)          noexcept;
+    void setStereoWidth(float width)        noexcept;
+    void setModRates   (const std::array<float, 16>& ratesHz) noexcept;
+
+    AdvancedFDN<16>&       getFDN()       noexcept { return fdn_; }
     const AdvancedFDN<16>& getFDN() const noexcept { return fdn_; }
 
 private:

@@ -44,9 +44,10 @@ target_link_libraries(decay_smoke_test PRIVATE tvfdn_dsp)
 # Fallback: set -DJUCE_DIR=/path/to/JUCE on the cmake command line to point
 # at any JUCE 7.x installation, or let FetchContent download it automatically.
 
-option(BUILD_VST3 "Build the VST3 plugin target (requires JUCE)" ON)
+option(BUILD_VST3         "Build the VST3 plugin target (requires JUCE)" ON)
+option(BUILD_BATCH_RENDER "Build batch_render WAV tool (requires JUCE)" ON)
 
-if(BUILD_VST3)
+if(BUILD_VST3 OR BUILD_BATCH_RENDER)
     # ── Locate JUCE ───────────────────────────────────────────────────────────
     set(JUCE_DIR "" CACHE PATH "Optional: explicit path to a JUCE root directory")
 
@@ -67,12 +68,14 @@ if(BUILD_VST3)
     endif()
 
     # ── Plugin target ─────────────────────────────────────────────────────────
+    if(BUILD_VST3)
     juce_add_plugin(ProReverb
-        COMPANY_NAME              "StudioDSP"
+        COMPANY_NAME              "TiaDSP"
         PLUGIN_MANUFACTURER_CODE  Sdsp
         PLUGIN_CODE               Rvb1
+        VERSION                   "1.0.0"
         FORMATS                   VST3 Standalone
-        PRODUCT_NAME              "Pro Reverb"
+        PRODUCT_NAME              "Tia Reverb"
         IS_SYNTH                  FALSE
         NEEDS_MIDI_INPUT          FALSE
         NEEDS_MIDI_OUTPUT         FALSE
@@ -113,6 +116,34 @@ if(BUILD_VST3)
 
     # Convenience alias so IDE shows "ProReverb_VST3" clearly
     message(STATUS "[ProReverb] VST3 + Standalone targets configured.")
-else()
-    message(STATUS "[ProReverb] BUILD_VST3=OFF — skipping JUCE plugin target.")
+    endif() # BUILD_VST3
+
+    # ── batch_render CLI (JUCE audio I/O + tvfdn_dsp) ─────────────────────────
+    if(BUILD_BATCH_RENDER)
+    add_executable(batch_render Tools/batch_render.cpp)
+
+    target_include_directories(batch_render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    target_compile_features(batch_render PRIVATE cxx_std_20)
+
+    target_compile_options(batch_render PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+
+    target_link_libraries(batch_render
+        PRIVATE
+            tvfdn_dsp
+            juce::juce_audio_formats
+            juce::juce_audio_basics
+            juce::juce_core
+    )
+
+    message(STATUS "[ProReverb] batch_render CLI target configured.")
+    endif() # BUILD_BATCH_RENDER
+
+endif() # BUILD_VST3 OR BUILD_BATCH_RENDER
+
+if(NOT BUILD_VST3 AND NOT BUILD_BATCH_RENDER)
+    message(STATUS "[ProReverb] BUILD_VST3=OFF, BUILD_BATCH_RENDER=OFF — skipping JUCE targets.")
 endif()
