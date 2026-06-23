@@ -12,7 +12,7 @@
  * Time-Varying Feedback Delay Network (TV-FDN).
  *
  * N-channel diagonal delay lines, orthogonal FWHT mixing, multi-phase LFO
- * modulation, and energy-preserving input injection. All buffers are
+ * modulation, and true-stereo L/R injection into even/odd channels. All buffers are
  * pre-allocated in prepare().
  */
 template <int NumChannels = 16>
@@ -55,8 +55,6 @@ private:
     std::array<WavetableLFO, NumChannels> lfos_;
     std::array<int, NumChannels> baseDelaySamples_{};
 
-    std::array<float, NumChannels> inputInjection_{};
-    std::array<float, NumChannels> outputWeights_{};
     std::array<float, NumChannels> hpState_{};
     std::array<float, NumChannels> lfoBlockStart_{};
     std::array<float, NumChannels> lfoBlockStep_{};
@@ -73,6 +71,7 @@ private:
 
     float paramSmoothingCoeff_ = 0.001f;
     float hpCoeff_ = 0.0f;
+    float injectionNorm_ = 0.25f;
     int maxDelaySamples_ = 0;
     bool lfoBlockPrecomputed_ = false;
     bool prepared_ = false;

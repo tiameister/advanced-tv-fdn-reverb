@@ -109,13 +109,7 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
         lfos_[static_cast<std::size_t>(i)].prepare(sampleRate, rate, phase);
     }
 
-    const float norm = dsp::orthogonalNormalization(static_cast<std::size_t>(NumChannels));
-    for (int i = 0; i < NumChannels; ++i)
-    {
-        const float sign = (i % 2 == 0) ? 1.0f : -1.0f;
-        inputInjection_[static_cast<std::size_t>(i)] = sign * norm;
-        outputWeights_[static_cast<std::size_t>(i)] = sign * norm;
-    }
+    injectionNorm_ = dsp::orthogonalNormalization(static_cast<std::size_t>(NumChannels));
 
     constexpr float smoothingTimeSeconds = 0.05f;
     paramSmoothingCoeff_ = 1.0f - std::exp(-1.0f / (smoothingTimeSeconds * static_cast<float>(sampleRate_)));
@@ -216,8 +210,10 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
     {
         updateSmoothedParameters();
 
-        const float monoIn = 0.5f * (left[sample] + right[sample]);
+        const float dryLeft = left[sample];
+        const float dryRight = right[sample];
         const float sampleIndex = static_cast<float>(sample);
+        const float norm = injectionNorm_;
 
         for (int i = 0; i < NumChannels; ++i)
         {
@@ -242,18 +238,17 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
                 hpCoeff_ * (sampleValue - hpState_[static_cast<std::size_t>(i)]);
             sampleValue -= hpState_[static_cast<std::size_t>(i)];
 
-            const float injected = sampleValue + inputInjection_[static_cast<std::size_t>(i)] * monoIn;
+            const float channelIn = ((i % 2) == 0) ? dryLeft : dryRight;
+            const float injected = sampleValue + channelIn * norm;
             delayLines_[static_cast<std::size_t>(i)].writeSample(injected);
 
-            const float tap = delayed_[static_cast<std::size_t>(i)] * outputWeights_[static_cast<std::size_t>(i)];
+            const float tap = delayed_[static_cast<std::size_t>(i)] * norm;
             if ((i % 2) == 0)
                 wetLeft += tap;
             else
                 wetRight += tap;
         }
 
-        const float dryLeft = left[sample];
-        const float dryRight = right[sample];
         const float wetMix = dryWetCurrent_;
         const float dryMix = 1.0f - dryWetCurrent_;
         outLeft[sample] = dryLeft * dryMix + wetLeft * wetMix;
