@@ -12,7 +12,7 @@ int main()
     TVFDNEngine engine;
     engine.prepare(sampleRate, blockSize);
     engine.setFeedback(0.85f);
-    engine.setModDepth(0.75f);
+    engine.setModDepth(2.5f);
     engine.setDryWet(1.0f);
 
     const auto& delays = engine.getFDN().getBaseDelaySamples();

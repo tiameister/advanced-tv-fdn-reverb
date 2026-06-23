@@ -135,8 +135,8 @@ public:
     /** Master wet level (0 = dry only, 1 = wet only). Smoothed per-sample. */
     void setMasterWet(float wet) noexcept { masterWetTarget_ = std::clamp(wet, 0.0f, 1.0f); }
 
-    /** FDN LFO modulation depth (samples). */
-    void setFdnModDepth(float d) noexcept { fdn_.setModDepth(d); }
+    /** FDN LFO modulation depth (milliseconds). */
+    void setFdnModDepth(float depthMs) noexcept { fdn_.setModDepth(depthMs); }
 
     /** FDN output stereo width via M/S matrix (0 = mono, 1 = natural, 2 = hyper-wide). */
     void setFdnStereoWidth(float w) noexcept { fdn_.setStereoWidth(w); }

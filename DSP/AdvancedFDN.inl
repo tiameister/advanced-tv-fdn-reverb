@@ -149,7 +149,8 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     // reallocate — it only changes which portion of the buffer is used.
     const int absMaxSamples =
         static_cast<int>(kAbsMaxDelayMs * float(sampleRate_) * 0.001f) + 1;
-    const int modMargin     = static_cast<int>(std::ceil(kMaxModDepth + 2.0f));
+    const int modMargin     = static_cast<int>(
+        std::ceil(kAllocModDepthMs * float(sampleRate_) * 0.001f)) + 4;
     const int lineCapacity  = absMaxSamples + modMargin;
 
     for (auto& line : delayLines_)
@@ -178,6 +179,15 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     constexpr float kSmTimeS = 0.05f; // 50 ms time constant
     paramSmoothingCoeff_ = 1.0f - std::exp(-1.0f / (kSmTimeS * float(sampleRate_)));
 
+    // Delay-target smoother: 300 ms TC → natural Doppler sweep on size change.
+    constexpr float kDelaySmTimeS = 0.30f;
+    delaySmoothCoeff_ = 1.0f - std::exp(-1.0f / (kDelaySmTimeS * float(sampleRate_)));
+
+    // Snap delay targets to initial base delays (no sweep on first block)
+    for (int i = 0; i < NumChannels; ++i)
+        smoothedDelayTargets_[static_cast<std::size_t>(i)] =
+            float(baseDelaySamples_[static_cast<std::size_t>(i)]);
+
     const float hpOmega = twoPi * kDcBlockerCutoffHz / float(sampleRate_);
     hpCoeff_ = 1.0f - std::exp(-hpOmega);
 
@@ -189,7 +199,7 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
 
     // Snap smoothers to targets — no glide on first processBlock
     feedbackCurrent_    = feedbackTarget_;
-    modDepthCurrent_    = modDepthTarget_;
+    modDepthCurrentMs_  = modDepthTargetMs_;
     dryWetCurrent_      = dryWetTarget_;
     stereoWidthCurrent_ = stereoWidthTarget_;
 
@@ -219,6 +229,11 @@ void AdvancedFDN<NumChannels>::reset() noexcept
     lfoBlockStart_.fill(0.0f);
     lfoBlockStep_.fill(0.0f);
     lfoBlockPrecomputed_ = false;
+
+    // Snap delay smoothers after a hard reset so no sweep occurs from silence
+    for (int i = 0; i < NumChannels; ++i)
+        smoothedDelayTargets_[static_cast<std::size_t>(i)] =
+            float(baseDelaySamples_[static_cast<std::size_t>(i)]);
 }
 
 // ── Unified reverb time ────────────────────────────────────────────────────────
@@ -287,27 +302,29 @@ void AdvancedFDN<NumChannels>::applySizePendingUpdate() noexcept
     getSizeRange(sizeTarget_, sizeMinMs, sizeMaxMs);
     scaleDelaysFromPrimes(sizeMinMs, sizeMaxMs);
 
-    // Reset delay lines — brief gap, acceptable for a room-mode change
-    for (auto& line : delayLines_)
-        line.reset();
-    for (auto& bank : absorptionBanks_)
-        bank.reset();
-    hpState_.fill(0.0f);
-    delayed_.fill(0.0f);
-    mixed_.fill(0.0f);
+    // ── Click-free transition: NO hard reset of delay lines ───────────────────
+    // smoothedDelayTargets_[i] will glide toward the new baseDelaySamples_[i]
+    // values over ~300 ms (see delaySmoothCoeff_), producing a natural Doppler
+    // sweep.  The delay-line buffers are pre-sized for kAbsMaxDelayMs so any
+    // read position within the new size range is already valid.
+    //
+    // We only recompute:
+    //   • feedbackTarget_  (avgDelay changes → different RT math)
+    //   • filter coefficients  (absorption bands use channel delay time)
+    // Let feedbackCurrent_ smooth toward the new feedbackTarget_ per-sample
+    // (the per-sample smoother in updateSmoothedParameters handles this).
 
-    // Re-derive feedback since avgDelay changed with the new size
     const float avgDelayS = computeAvgDelaySec();
     if (avgDelayS > 0.0f && reverbTimeSec_ > 0.0f)
     {
-        feedbackTarget_  = std::pow(10.0f, -3.0f * avgDelayS / reverbTimeSec_);
-        feedbackTarget_  = std::clamp(feedbackTarget_, 0.01f, 0.99f);
-        feedbackCurrent_ = feedbackTarget_; // snap — avoid glide from old value
+        feedbackTarget_ = std::pow(10.0f, -3.0f * avgDelayS / reverbTimeSec_);
+        feedbackTarget_ = std::clamp(feedbackTarget_, 0.01f, 0.99f);
+        // Do NOT snap feedbackCurrent_ here — let it smooth naturally.
     }
 
     updateFilterCoefficients();
-    for (auto& bank : absorptionBanks_)
-        bank.snapCoefficientsToTargets();
+    // Coefficients are already smoothed per-sample by BiquadFilter's own smoothers,
+    // so no snapCoefficientsToTargets() call is needed here.
 
     sizeNeedsUpdate_.store(false, std::memory_order_release);
 }
@@ -315,9 +332,9 @@ void AdvancedFDN<NumChannels>::applySizePendingUpdate() noexcept
 // ── Modulation setters ─────────────────────────────────────────────────────────
 
 template <int NumChannels>
-void AdvancedFDN<NumChannels>::setModDepth(float depthSamples) noexcept
+void AdvancedFDN<NumChannels>::setModDepth(float depthMs) noexcept
 {
-    modDepthTarget_ = std::clamp(depthSamples, 0.0f, kMaxModDepth);
+    modDepthTargetMs_ = std::clamp(depthMs, 0.0f, kMaxModDepthMs);
 }
 
 template <int NumChannels>
@@ -345,7 +362,7 @@ template <int NumChannels>
 void AdvancedFDN<NumChannels>::updateSmoothedParameters() noexcept
 {
     feedbackCurrent_    += paramSmoothingCoeff_ * (feedbackTarget_    - feedbackCurrent_);
-    modDepthCurrent_    += paramSmoothingCoeff_ * (modDepthTarget_    - modDepthCurrent_);
+    modDepthCurrentMs_  += paramSmoothingCoeff_ * (modDepthTargetMs_  - modDepthCurrentMs_);
     dryWetCurrent_      += paramSmoothingCoeff_ * (dryWetTarget_      - dryWetCurrent_);
     stereoWidthCurrent_ += paramSmoothingCoeff_ * (stereoWidthTarget_ - stereoWidthCurrent_);
 }
@@ -443,18 +460,32 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
     {
         updateSmoothedParameters();
 
-        const float dryLeft    = left[sample];
-        const float dryRight   = right[sample];
-        const float sampleIdx  = float(sample);
-        const float norm       = injectionNorm_;
+        const float dryLeft         = left[sample];
+        const float dryRight        = right[sample];
+        const float sampleIdx       = float(sample);
+        const float norm            = injectionNorm_;
+        const float modDepthSamples = modDepthCurrentMs_
+                                    * static_cast<float>(sampleRate_) * 0.001f;
+
+        // ── Advance per-channel delay smoothers ───────────────────────────────
+        // Each smoothedDelayTargets_[i] tracks baseDelaySamples_[i] with a
+        // ~300 ms one-pole filter.  Using the smoothed value instead of the
+        // raw integer target produces a click-free Doppler sweep when size
+        // changes, rather than an abrupt jump in read position.
+        for (int i = 0; i < NumChannels; ++i)
+        {
+            const float target = float(baseDelaySamples_[static_cast<std::size_t>(i)]);
+            smoothedDelayTargets_[static_cast<std::size_t>(i)] +=
+                delaySmoothCoeff_ * (target - smoothedDelayTargets_[static_cast<std::size_t>(i)]);
+        }
 
         // ── Read all delay lines ──────────────────────────────────────────────
         for (int i = 0; i < NumChannels; ++i)
         {
             const float lfoValue = lfoBlockStart_[static_cast<std::size_t>(i)]
                                  + lfoBlockStep_ [static_cast<std::size_t>(i)] * sampleIdx;
-            float delay = float(baseDelaySamples_[static_cast<std::size_t>(i)])
-                        + modDepthCurrent_ * lfoValue;
+            float delay = smoothedDelayTargets_[static_cast<std::size_t>(i)]
+                        + modDepthSamples * lfoValue;
             delay = std::max(FractionalDelayLine::kMinStableDelaySamples, delay);
             delayed_[static_cast<std::size_t>(i)] =
                 delayLines_[static_cast<std::size_t>(i)].readSample(delay);

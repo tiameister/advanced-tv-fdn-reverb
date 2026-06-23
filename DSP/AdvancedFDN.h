@@ -94,7 +94,8 @@ public:
     void setSize(float size) noexcept;
 
     // ── Modulation & output ──────────────────────────────────────────────────
-    void setModDepth    (float depthSamples) noexcept;
+    /** Modulation depth in milliseconds (delay-time LFO swing). */
+    void setModDepth    (float depthMs) noexcept;
     void setDryWet      (float mix)          noexcept;
     void setStereoWidth (float width)        noexcept;
     void setModRates    (const std::array<float, NumChannels>& ratesHz) noexcept;
@@ -109,8 +110,10 @@ private:
     static constexpr float kAbsMaxDelayMs     = 80.0f;  // buffer allocation ceiling
     static constexpr float kDefaultSize       = 0.33f;  // ≈ medium room [3, 18] ms
 
-    static constexpr float kDefaultModDepth   = 0.75f;
-    static constexpr float kMaxModDepth       = 2.0f;
+    // Delay-time LFO depth in ms. Values < ~1 ms leave static comb modes audible.
+    static constexpr float kDefaultModDepthMs = 2.5f;
+    static constexpr float kMaxModDepthMs     = 8.0f;
+    static constexpr float kAllocModDepthMs   = 10.0f; // buffer headroom at prepare()
     static constexpr float kDcBlockerCutoffHz = 5.0f;
 
     // ── Fixed decay-EQ corner / centre frequencies ────────────────────────────
@@ -177,6 +180,14 @@ private:
     std::array<float, NumChannels> delayed_{};
     std::array<float, NumChannels> mixed_{};
 
+    // ── Click-free size morphing ───────────────────────────────────────────────
+    // Per-channel one-pole smoothers that track baseDelaySamples_[i] with a
+    // ~300 ms time constant.  When setSize() updates baseDelaySamples_, the read
+    // position glides smoothly toward the new value — a natural Doppler sweep —
+    // instead of hard-resetting the delay line (which causes an audible click).
+    std::array<float, NumChannels> smoothedDelayTargets_{};
+    float delaySmoothCoeff_ = 0.001f; // set in prepare() for ~300 ms TC
+
     // ── Unified reverb time ───────────────────────────────────────────────────
     float reverbTimeSec_   = 2.5f;
     float bassDecayMult_   = 1.4f;   // lowT60  = reverbTime × bassDecayMult
@@ -193,8 +204,8 @@ private:
     float feedbackCurrent_ = 0.85f;
 
     // ── Modulation ────────────────────────────────────────────────────────────
-    float modDepthTarget_     = kDefaultModDepth;
-    float modDepthCurrent_    = kDefaultModDepth;
+    float modDepthTargetMs_   = kDefaultModDepthMs;
+    float modDepthCurrentMs_  = kDefaultModDepthMs;
     float dryWetTarget_       = 1.0f;
     float dryWetCurrent_      = 1.0f;
     float stereoWidthTarget_  = 1.0f;

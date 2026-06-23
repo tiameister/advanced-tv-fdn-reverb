@@ -5,6 +5,7 @@ project_vision.md
 
 # --- C++ / JUCE / IDE Derleme Artıkları ---
 /Builds/
+/renders/
 /Build/
 /.vs/
 /out/

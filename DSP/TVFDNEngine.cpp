@@ -44,9 +44,9 @@ void TVFDNEngine::setSize(float size) noexcept
     fdn_.setSize(size);
 }
 
-void TVFDNEngine::setModDepth(float depthSamples) noexcept
+void TVFDNEngine::setModDepth(float depthMs) noexcept
 {
-    fdn_.setModDepth(depthSamples);
+    fdn_.setModDepth(depthMs);
 }
 
 void TVFDNEngine::setDryWet(float mix) noexcept

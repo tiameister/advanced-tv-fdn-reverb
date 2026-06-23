@@ -90,6 +90,8 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
     target_sources(ProReverb PRIVATE
         Plugin/PluginProcessor.cpp
         Plugin/PluginEditor.cpp
+        Plugin/DecayGraphComponent.cpp
+        Plugin/PresetManager.cpp
     )
 
     target_include_directories(ProReverb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

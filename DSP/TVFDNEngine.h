@@ -33,7 +33,7 @@ public:
     void setSize(float size) noexcept;
 
     // ── Modulation & output ──────────────────────────────────────────────────
-    void setModDepth   (float depthSamples) noexcept;
+    void setModDepth   (float depthMs) noexcept;
     void setDryWet     (float mix)          noexcept;
     void setStereoWidth(float width)        noexcept;
     void setModRates   (const std::array<float, 16>& ratesHz) noexcept;

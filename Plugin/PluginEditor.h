@@ -2,22 +2,28 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "DecayGraphComponent.h"
+#include "PresetManager.h"
 
 /**
  * ReverbPluginEditor
  * ───────────────────
- * Simplified FabFilter-style control surface — 12 parameters in three rows.
+ * FabFilter-style control surface with smart-view toggle and interactive
+ * decay-curve editor.
  *
- * Layout (720 × 520 px)
- * ──────────────────────
- *   Header bar    : plugin name + version
- *   Row A (Main)  : Reverb Time | Room Size | Pre-Delay | Distance | Wet Mix
- *   Row B (Char.) : Mod Depth | Stereo Width | ER Length | ER Density
- *   Row C (Decay) : Bass Decay | Mid Decay | HF Decay
+ * Layout — Basic mode  (720 × 410 px)
+ * ─────────────────────────────────────
+ *   Header bar   : name | version | "CHARACTER ▼" toggle
+ *   Row A (Main) : Reverb Time | Room Size | Pre-Delay | Proximity | Wet Mix
+ *   Decay Graph  : interactive 3-node log-frequency T60 curve
  *
- * Row C encodes a simplified 3-point decay curve:
- *   bass/mid/hf multipliers × Reverb Time → per-band T60
- *   (Phase 5: replace Row C with an interactive draggable curve display)
+ * Layout — Advanced mode  (720 × 560 px)
+ * ────────────────────────────────────────
+ *   + Row B (Character) : Mod Depth | Space | ER Length | ER Density
+ *     (inserted between Row A and the graph; window expands vertically)
+ *
+ * The three Bass/Mid/HF decay parameters are wired directly to the
+ * DecayGraphComponent via APVTS listeners — no separate knobs needed.
  */
 class ReverbPluginEditor : public juce::AudioProcessorEditor
 {
@@ -29,6 +35,9 @@ public:
     void resized() override;
 
 private:
+    void toggleAdvancedView();
+    void layoutRows();
+
     ReverbPluginProcessor& processor_;
 
     // ── Knob helper ───────────────────────────────────────────────────────────
@@ -45,17 +54,35 @@ private:
                   juce::Component* parent);
     };
 
-    // ── Row A: Main ───────────────────────────────────────────────────────────
-    LabelledKnob kReverbTime_, kSize_, kPreDelay_, kDistance_, kMasterWet_;
+    // ── Row A: Main (always visible) ──────────────────────────────────────────
+    LabelledKnob kReverbTime_, kSize_, kPreDelay_, kProximity_, kMasterWet_;
 
-    // ── Row B: Character ──────────────────────────────────────────────────────
-    LabelledKnob kModDepth_, kStereoWidth_, kErLength_, kErDensity_;
+    // ── Row B: Character (toggled by smart-view button) ───────────────────────
+    LabelledKnob kModDepth_, kSpace_, kErLength_, kErDensity_;
 
-    // ── Row C: Decay shape ────────────────────────────────────────────────────
-    LabelledKnob kBassDecay_, kMidDecay_, kHfDecay_;
+    // ── Decay graph (replaces 3-knob Row C) ───────────────────────────────────
+    DecayGraphComponent decayGraph_;
 
     // ── Section headers ───────────────────────────────────────────────────────
     juce::Label labelMain_, labelChar_, labelDecay_;
+
+    // ── Preset selector ───────────────────────────────────────────────────────
+    PresetManager    presetManager_;
+    juce::ComboBox   presetBox_;
+
+    // ── Smart-view toggle ─────────────────────────────────────────────────────
+    juce::TextButton smartViewBtn_;
+    bool             advancedView_ = false;
+
+    // ── Layout constants ──────────────────────────────────────────────────────
+    static constexpr int kW           = 720;
+    static constexpr int kHeaderH     = 44;
+    static constexpr int kGap         = 10;
+    static constexpr int kRowH        = 140;
+    static constexpr int kGraphH      = 190;
+    static constexpr int kBottomPad   = 16;
+    static constexpr int kHBasic      = kHeaderH + kGap + kRowH + kGap + kGraphH + kBottomPad;
+    static constexpr int kHAdvanced   = kHeaderH + kGap + kRowH + kGap + kRowH + kGap + kGraphH + kBottomPad;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReverbPluginEditor)
 };
