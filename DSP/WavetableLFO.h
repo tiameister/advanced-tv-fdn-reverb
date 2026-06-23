@@ -42,11 +42,19 @@ constexpr float constexprSin(float radians) noexcept
 template <int TableSize>
 constexpr std::array<float, static_cast<std::size_t>(TableSize) + 1u> makeSineTable() noexcept
 {
+    // Three sinusoids with prime-ratio frequencies (1 : 2.31 : 3.79).
+    // Their sum is non-periodic over any practical audio interval, so 16
+    // delay lines modulated by the same waveform at different phases produce
+    // a dense, non-repeating flutter pattern instead of a "siren" wobble.
+    // Weights 1 + 0.5 + 0.25 = 1.75 → divide to peak-normalise to ±1.
     std::array<float, static_cast<std::size_t>(TableSize) + 1u> table{};
     for (int i = 0; i <= TableSize; ++i)
     {
         const float phase = static_cast<float>(i) / static_cast<float>(TableSize);
-        table[static_cast<std::size_t>(i)] = constexprSin(kTwoPi * phase);
+        const float f1 = constexprSin(kTwoPi * phase);
+        const float f2 = constexprSin(kTwoPi * phase * 2.31f);
+        const float f3 = constexprSin(kTwoPi * phase * 3.79f);
+        table[static_cast<std::size_t>(i)] = (f1 + (f2 * 0.5f) + (f3 * 0.25f)) / 1.75f;
     }
     return table;
 }

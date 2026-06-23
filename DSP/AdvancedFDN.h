@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AbsorptionBank.h"
+#include "FeedbackAllpass.h"
 #include "FractionalDelayLine.h"
 #include "OrthogonalMatrix.h"
 #include "WavetableLFO.h"
@@ -40,13 +40,21 @@
  *   size=0.67 → ~[ 7, 40] ms  large hall
  *   size=1.00 → ~[15, 80] ms  cathedral
  *
- * Output tap topology (post-absorption, double diffusion)
- * ───────────────────────────────────────────────────────
+ * Feedback mixing — Householder reflection
+ * ─────────────────────────────────────────
+ * The feedback matrix is H = I − (2/N)·11ᵀ (Householder reflection through the
+ * all-ones hyperplane).  Applied per sample: y_i = x_i − (2/N)·Σx.
+ * Unlike FWHT, Householder has no structured eigenmodes, so it cannot trap energy
+ * in Hadamard sub-loops.  It is orthogonal (energy-preserving), O(N), and
+ * branchless inside the hot path.
+ *
+ * Output tap topology (post-absorption, signed-Hadamard decorrelation)
+ * ─────────────────────────────────────────────────────────────────────
  * Wet output is tapped from the *damped* recirculating signal (after DC block +
- * AbsorptionBank), then passed through a second FWHT before stereo accumulation.
- * Tapping pre-damping mixed_[i] exposes raw comb resonances — audible when
- * Distance=1 (pure tail).  Input is mono-summed into all channels so the tank
- * is not seeded with alternating L/R comb modes.
+ * Jot LP damper), then passed through a signed-FWHT (random ±1 post-signs ×
+ * FWHT) before stereo accumulation.  This decorrelates L/R without introducing
+ * the structured resonances of a plain FWHT in the feedback path.
+ * Input is mono-summed so the tank is not seeded with L/R comb modes.
  *
  * Stereo width (M/S)
  * ──────────────────
@@ -168,7 +176,7 @@ private:
 
     std::array<FractionalDelayLine, NumChannels> delayLines_;
     std::array<WavetableLFO, NumChannels>        lfos_;
-    std::array<AbsorptionBank, NumChannels>      absorptionBanks_;
+    std::array<FeedbackAllpass, NumChannels>     feedbackAllpasses_;
 
     std::array<int, NumChannels> baseDelaySamples_{};
     // Prime delays computed once at prepare() for the default size.
@@ -176,6 +184,9 @@ private:
     std::array<int, NumChannels> primeBaseDelaySamples_{};
 
     std::array<float, NumChannels> hpState_{};
+    std::array<float, NumChannels> lpState_{};   // Jot one-pole HF damper (feedback path)
+    float lpCoeffTarget_  = 0.5f;
+    float lpCoeffCurrent_ = 0.5f;
     std::array<float, NumChannels> lfoBlockStart_{};
     std::array<float, NumChannels> lfoBlockStep_{};
     std::array<float, NumChannels> delayed_{};
@@ -208,16 +219,11 @@ private:
     float feedbackTarget_  = 0.85f;
     float feedbackCurrent_ = 0.85f;
 
-    // ── Randomized signed-Hadamard mixing matrices ────────────────────────────
-    // Two arrays of ±1 values, one applied per-element before each FWHT pass.
-    // The combined matrix D_out * FWHT * D_in is a "signed Hadamard" matrix —
-    // orthogonal like the regular FWHT but without its structured eigenmode
-    // pattern.  This breaks the tonal regularity produced by the regular
-    // Walsh-Hadamard Transform acting on prime-spaced delay lines, smoothing
-    // the diffuse tail into a more noise-like texture (Valhalla / FabFilter
-    // quality target).  Signs are fixed (deterministic seed) so the plugin
-    // behaviour is reproducible; the FDN T60 is unaffected by sign flips.
-    std::array<float, NumChannels> fwhtPreSigns_{};   // applied before feedback FWHT
+    // ── Signed-Hadamard post-mix signs (output path only) ────────────────────
+    // Random ±1 values applied per-element before the output FWHT pass.
+    // The feedback path now uses a Householder reflection instead of FWHT,
+    // so only post-signs remain.  Signs are deterministic (fixed seed) to
+    // ensure reproducible behaviour across sessions; FDN T60 is unaffected.
     std::array<float, NumChannels> fwhtPostSigns_{};  // applied before output FWHT
 
     // ── Per-channel loop gains ────────────────────────────────────────────────

@@ -190,15 +190,36 @@ private:
         }
     };
 
-    static constexpr int   kNumDiffStages = 4;
-    static constexpr float kDiffCoeff     = 0.7f;
-    // Prime-ish delay times (ms) — spans the FDN delay range to maximise density
-    static constexpr std::array<float, kNumDiffStages> kDiffDelayMs{
-        7.43f, 11.87f, 17.31f, 23.11f
+    static constexpr int kNumDiffStages = 6;
+
+    // Staggered allpass gains: early (short) stages use higher gain for dense
+    // build-up; later (long) stages use lower gain to prevent distinct ringing
+    // from the longest delays acting as an audible resonant comb.
+    static constexpr std::array<float, kNumDiffStages> kDiffCoeffs{
+        0.70f, 0.65f, 0.60f, 0.55f, 0.50f, 0.45f
+    };
+
+    // Asymmetric L/R delay sets — prime-ish values offset by ~1–3 %.
+    // Identical L/R delays collapse to a mono comb filter on mono inputs;
+    // the offset breaks phase correlation and widens the stereo image before
+    // the signal enters the FDN.  Span 5–36 ms to match FDN delay spread.
+    static constexpr std::array<float, kNumDiffStages> kDiffDelayMs_L{
+        5.11f, 8.37f, 13.19f, 19.73f, 27.41f, 35.67f
+    };
+    static constexpr std::array<float, kNumDiffStages> kDiffDelayMs_R{
+        5.23f, 8.59f, 13.43f, 20.11f, 27.83f, 36.17f
+    };
+
+    static constexpr int   kOutDiffStages = 2;
+    static constexpr float kOutDiffCoeff  = 0.65f;
+    static constexpr std::array<float, kOutDiffStages> kOutDiffDelayMs{
+        11.3f, 23.7f
     };
 
     std::array<AllpassStage, kNumDiffStages> diffL_{};
     std::array<AllpassStage, kNumDiffStages> diffR_{};
+    std::array<AllpassStage, kOutDiffStages> outDiffL_{};
+    std::array<AllpassStage, kOutDiffStages> outDiffR_{};
 
     EarlyReflections    er_;
     TVFDNEngine         fdn_;

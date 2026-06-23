@@ -58,14 +58,27 @@ void ReverbEngine::prepare(double        sampleRate,
     fdnOutL_ .assign(sz, 0.0f);
     fdnOutR_ .assign(sz, 0.0f);
 
-    // ── Allpass pre-diffuser ──────────────────────────────────────────────────
+    // ── Allpass pre-diffuser (asymmetric L/R) ────────────────────────────────
+    // L and R are prepared with independent delay lengths to break the phase
+    // correlation that a shared delay set would create on mono inputs.
     for (int s = 0; s < kNumDiffStages; ++s)
     {
+        const float srMs = static_cast<float>(sampleRate) * 0.001f;
+        const int dsL = static_cast<int>(
+            kDiffDelayMs_L[static_cast<std::size_t>(s)] * srMs) + 1;
+        const int dsR = static_cast<int>(
+            kDiffDelayMs_R[static_cast<std::size_t>(s)] * srMs) + 1;
+        diffL_[static_cast<std::size_t>(s)].prepare(dsL);
+        diffR_[static_cast<std::size_t>(s)].prepare(dsR);
+    }
+
+    for (int s = 0; s < kOutDiffStages; ++s)
+    {
         const int ds = static_cast<int>(
-            kDiffDelayMs[static_cast<std::size_t>(s)]
+            kOutDiffDelayMs[static_cast<std::size_t>(s)]
             * static_cast<float>(sampleRate) * 0.001f) + 1;
-        diffL_[static_cast<std::size_t>(s)].prepare(ds);
-        diffR_[static_cast<std::size_t>(s)].prepare(ds);
+        outDiffL_[static_cast<std::size_t>(s)].prepare(ds);
+        outDiffR_[static_cast<std::size_t>(s)].prepare(ds);
     }
 
     // ── Sub-modules ───────────────────────────────────────────────────────────
@@ -97,6 +110,12 @@ void ReverbEngine::reset() noexcept
     {
         diffL_[static_cast<std::size_t>(s)].reset();
         diffR_[static_cast<std::size_t>(s)].reset();
+    }
+
+    for (int s = 0; s < kOutDiffStages; ++s)
+    {
+        outDiffL_[static_cast<std::size_t>(s)].reset();
+        outDiffR_[static_cast<std::size_t>(s)].reset();
     }
 
     std::fill(delayedL_.begin(), delayedL_.end(), 0.0f);
@@ -191,8 +210,9 @@ void ReverbEngine::processBlock(float* left, float* right, int numSamples) noexc
         float dR = delayedR_[i];
         for (int s = 0; s < kNumDiffStages; ++s)
         {
-            dL = diffL_[static_cast<std::size_t>(s)].process(dL, kDiffCoeff);
-            dR = diffR_[static_cast<std::size_t>(s)].process(dR, kDiffCoeff);
+            const float g = kDiffCoeffs[static_cast<std::size_t>(s)];
+            dL = diffL_[static_cast<std::size_t>(s)].process(dL, g);
+            dR = diffR_[static_cast<std::size_t>(s)].process(dR, g);
         }
         fdnInL_[i] = dL;
         fdnInR_[i] = dR;
@@ -202,6 +222,22 @@ void ReverbEngine::processBlock(float* left, float* right, int numSamples) noexc
     fdn_.processBlock(fdnInL_.data(), fdnInR_.data(),
                       fdnOutL_.data(), fdnOutR_.data(),
                       numSamples);
+
+    // ── Step 4b: Post-FDN output diffuser (tail-only polish) ──────────────────
+    // Smears residual comb structure before the Distance crossfade.  Critical
+    // for dist=1.0 where the FDN is the only audible path.
+    for (int i = 0; i < numSamples; ++i)
+    {
+        float oL = fdnOutL_[i];
+        float oR = fdnOutR_[i];
+        for (int s = 0; s < kOutDiffStages; ++s)
+        {
+            oL = outDiffL_[static_cast<std::size_t>(s)].process(oL, kOutDiffCoeff);
+            oR = outDiffR_[static_cast<std::size_t>(s)].process(oR, kOutDiffCoeff);
+        }
+        fdnOutL_[i] = oL;
+        fdnOutR_[i] = oR;
+    }
 
     // ── Step 5: Per-sample equal-power distance crossfade + master wet blend ──
     //

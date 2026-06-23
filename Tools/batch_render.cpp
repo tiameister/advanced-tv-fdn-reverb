@@ -156,10 +156,10 @@ bool renderConfiguration(const juce::AudioBuffer<float>& dryInput,
     engine.setDistance(config.distance);
     engine.setFdnStereoWidth(config.stereoWidth);
     engine.setMasterWet(1.0f);
-    engine.setReverbTime(2.5f);                    // plugin default (replaces setFdnFeedback)
-    engine.setDecayShape(1.4f, 1.0f, 0.2f);        // bass / mid / HF tilt multipliers
-    engine.setSize(0.5f);                          // larger room → lower modal density
-    engine.setFdnModDepth(4.0f);
+    engine.setReverbTime(2.5f);
+    engine.setDecayShape(1.4f, 1.0f, 0.12f);       // faster HF rolloff → less metallic HF ring
+    engine.setSize(0.67f);                          // longer delays → lower modal density
+    engine.setFdnModDepth(2.5f);
 
     engine.prepare(sampleRate, kBlockSize);
 

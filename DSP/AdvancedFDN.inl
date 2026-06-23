@@ -93,13 +93,13 @@ AdvancedFDN<NumChannels>::computePrimeDelaySamples(double sampleRate,
 template <int NumChannels>
 void AdvancedFDN<NumChannels>::getSizeRange(float size, float& minMs, float& maxMs) noexcept
 {
-    // Log-linear interpolation:
-    //   size=0  → [  2,  8] ms  small room
-    //   size≈0.33 → [3, 18] ms  medium (matches default primes)
-    //   size=1  → [ 15, 80] ms  cathedral
+    //   size=0.00 → ~[ 5, 12] ms  small room
+    //   size=0.33 → ~[ 8, 22] ms  medium room
+    //   size=0.67 → ~[15, 45] ms  large hall
+    //   size=1.00 → ~[30, 80] ms  cathedral
     const float t = std::clamp(size, 0.0f, 1.0f);
-    minMs = 2.0f  * std::pow(7.5f,  t);  // 2 → 15 ms
-    maxMs = 8.0f  * std::pow(10.0f, t);  // 8 → 80 ms
+    minMs = 5.0f  * std::pow(6.0f,  t);   // 5 → 30 ms
+    maxMs = 12.0f * std::pow(6.67f, t);   // 12 → 80 ms
 }
 
 template <int NumChannels>
@@ -190,12 +190,22 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
         outPanR_[static_cast<std::size_t>(i)] *= panScaleR;
     }
 
+    // ── Per-channel feedback allpass diffusers ────────────────────────────────
+    // Prime delays spanning 53–331 samples (~1.2–7.5 ms at 44.1 kHz).
+    // The original 3–59 sample range only diffused frequencies above ~7 kHz.
+    // Scaling ~10× targets the 500 Hz–2 kHz mid-range band where metallic
+    // ringing and modal convergence are most audible.
+    // FeedbackAllpass::kCapacity = 512 accommodates the maximum delay (331).
+    static constexpr std::array<int, NumChannels> kFeedbackApDelays {
+         53,  67,  83,  97, 113, 127, 149, 167,
+        181, 199, 223, 241, 257, 277, 307, 331
+    };
+    for (int i = 0; i < NumChannels; ++i)
+        feedbackAllpasses_[static_cast<std::size_t>(i)].prepare(
+            kFeedbackApDelays[static_cast<std::size_t>(i)]);
+
     // ── Normalization ─────────────────────────────────────────────────────────
     injectionNorm_ = dsp::orthogonalNormalization(static_cast<std::size_t>(NumChannels));
-
-    // ── Absorption banks ──────────────────────────────────────────────────────
-    for (auto& bank : absorptionBanks_)
-        bank.prepare(sampleRate_);
 
     // ── Smoothing coefficients ─────────────────────────────────────────────────
     constexpr float kSmTimeS = 0.05f; // 50 ms time constant
@@ -213,16 +223,15 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     const float hpOmega = 6.283185307179586f * kDcBlockerCutoffHz / float(sampleRate_);
     hpCoeff_ = 1.0f - std::exp(-hpOmega);
 
-    // ── Randomized signed-Hadamard sign matrices ──────────────────────────────
-    // Fixed-seed xorshift32 ensures deterministic behaviour across sessions.
-    // Pre-signs and post-signs are generated from independent RNG streams so
-    // the two mixing passes have uncorrelated sign patterns.
+    // ── Output FWHT post-signs (feedback path retired to Householder) ────────
+    // Fixed-seed xorshift32 → deterministic signs across sessions.
+    // fwhtPreSigns_ is no longer used; the feedback mix is now Householder.
+    // An independent seed is used so removing the pre-sign stream does not
+    // shift the post-sign values relative to the previous implementation.
     {
-        std::uint32_t rng = 0xDEADBEEFu;
+        std::uint32_t rng = 0xCAFEBABEu;
         for (int i = 0; i < NumChannels; ++i)
         {
-            rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
-            fwhtPreSigns_[static_cast<std::size_t>(i)] = (rng & 1u) ? 1.0f : -1.0f;
             rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
             fwhtPostSigns_[static_cast<std::size_t>(i)] = (rng & 1u) ? 1.0f : -1.0f;
         }
@@ -239,14 +248,12 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     modDepthCurrentMs_  = modDepthTargetMs_;
     dryWetCurrent_      = dryWetTarget_;
     stereoWidthCurrent_ = stereoWidthTarget_;
+    lpCoeffCurrent_     = lpCoeffTarget_;
 
     // Snap per-channel gains — prevent a sweep from 0 to target on first block
     for (int i = 0; i < NumChannels; ++i)
         channelGainCurrent_[static_cast<std::size_t>(i)] =
             channelGainTarget_[static_cast<std::size_t>(i)];
-
-    for (auto& bank : absorptionBanks_)
-        bank.snapCoefficientsToTargets();
 
     sizeNeedsUpdate_.store(false, std::memory_order_relaxed);
 
@@ -262,8 +269,10 @@ void AdvancedFDN<NumChannels>::reset() noexcept
     for (auto& lfo : lfos_)
         lfo.reset();
 
-    for (auto& bank : absorptionBanks_)
-        bank.reset();
+    for (auto& ap : feedbackAllpasses_)
+        ap.reset();
+
+    lpState_.fill(0.0f);
 
     hpState_.fill(0.0f);
     delayed_.fill(0.0f);
@@ -444,6 +453,7 @@ void AdvancedFDN<NumChannels>::updateSmoothedParameters() noexcept
     modDepthCurrentMs_  += paramSmoothingCoeff_ * (modDepthTargetMs_  - modDepthCurrentMs_);
     dryWetCurrent_      += paramSmoothingCoeff_ * (dryWetTarget_      - dryWetCurrent_);
     stereoWidthCurrent_ += paramSmoothingCoeff_ * (stereoWidthTarget_ - stereoWidthCurrent_);
+    lpCoeffCurrent_     += paramSmoothingCoeff_ * (lpCoeffTarget_     - lpCoeffCurrent_);
 
     // Smooth per-channel loop gains (same 50 ms time constant).
     // Prevents zipper noise when RT or room size changes cause targets to jump.
@@ -477,45 +487,18 @@ void AdvancedFDN<NumChannels>::precomputeLfoBlock(int numSamples) noexcept
 template <int NumChannels>
 void AdvancedFDN<NumChannels>::updateFilterCoefficients() noexcept
 {
-    // ── Per-channel, per-frequency decay — FabFilter/Valhalla approach ────────
+    // Jot-style one-pole HF damper in the feedback path.
+    // Biquad shelves were removed — their group-delay peaks inside a short-delay
+    // FDN read as metallic ringing.  A single one-pole LPF is monotonic and is
+    // the standard in Moorer / Freeverb / Valhalla-class FDN implementations.
     //
-    // channelGainTarget_[i] already handles the flat (bass) loop gain for
-    // channel i:  g_base(i) = 10^(−3·D_i / T60_bass).
-    //
-    // The absorption bank needs to supply only the DIFFERENTIAL attenuation
-    // that makes mid and HF decay faster than bass.  The effective T60 seen
-    // by the absorption bank (relative to the bass base) is:
-    //
-    //   T60_eff(band) = 1 / (1/T60_band − 1/T60_bass)
-    //
-    // Because T60_band ≤ T60_bass for mid and HF, this is always positive and
-    // the corresponding absorption gain is always ≤ 1 — no pass-through, no
-    // unstable boosts.  Every channel at every frequency now hits its T60
-    // target exactly, regardless of individual delay length.
-
-    for (int i = 0; i < NumChannels; ++i)
-    {
-        const float D = float(baseDelaySamples_[static_cast<std::size_t>(i)])
-                      / float(sampleRate_);
-
-        // Converts an absolute T60 band target into the effective T60 that the
-        // absorption bank must achieve, given that the channel base gain already
-        // handles T60_bass.  Returns a large sentinel when the band target equals
-        // or exceeds T60_bass (i.e., no additional attenuation required).
-        auto effectiveT60 = [&](float t60Band) -> float
-        {
-            if (t60Band <= 0.0f) return 0.001f;
-            const float invDiff = (1.0f / t60Band) - (1.0f / decayLowT60_);
-            if (invDiff < 1e-7f) return 1000.0f;   // band ≥ bass → near pass-through
-            return 1.0f / invDiff;
-        };
-
-        absorptionBanks_[static_cast<std::size_t>(i)].updateCoefficients(
-            sampleRate_, D,
-            kDecayLowFreqHz,  effectiveT60(decayLowT60_),    // ≈ 1000 s → gain ≈ 1
-            kDecayMidFreqHz,  effectiveT60(decayMidT60_),  kDecayMidQ,
-            kDecayHighFreqHz, effectiveT60(decayHighT60_));
-    }
+    // Corner frequency is derived from the HF T60 target: shorter HF decay →
+    // lower cutoff → darker tail.
+    const float hfT60 = std::max(decayHighT60_, 0.08f);
+    const float fcHz  = std::clamp(6000.0f * std::sqrt(0.35f / hfT60),
+                                   1500.0f, 14000.0f);
+    lpCoeffTarget_ = std::exp(-6.283185307179586f * fcHz / float(sampleRate_));
+    lpCoeffTarget_ = std::clamp(lpCoeffTarget_, 0.0f, 0.9995f);
 }
 
 // ── processBlock ──────────────────────────────────────────────────────────────
@@ -566,34 +549,39 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
         }
 
         // ── Read all delay lines ──────────────────────────────────────────────
+        // Hard-cap modulation at 1.5 ms absolute.  A proportional cap
+        // (e.g. 35 % of baseDelay) over-modulates long lines, creating
+        // audible pitch-shift / chorus artifacts in large hall settings.
+        // 1.5 ms keeps the pitch smearing subtle and organic across all sizes.
+        const float maxModSamples = 1.5f * static_cast<float>(sampleRate_) * 0.001f;
+        const float clampedMod    = std::min(modDepthSamples, maxModSamples);
+
         for (int i = 0; i < NumChannels; ++i)
         {
             const float lfoValue = lfoBlockStart_[static_cast<std::size_t>(i)]
                                  + lfoBlockStep_ [static_cast<std::size_t>(i)] * sampleIdx;
 
-            // Clamp modulation depth to 25 % of the channel's base delay.
-            // Without this, short channels (5–8 ms) with the default 4 ms mod
-            // depth receive 50–80 % amplitude modulation — audible chorus /
-            // pitch-wobble that reads as metallic twang.
-            const float baseDelay = smoothedDelayTargets_[static_cast<std::size_t>(i)];
-            const float maxMod    = baseDelay * 0.25f;
-            const float clampedMod = std::min(modDepthSamples, maxMod);
-
-            float delay = baseDelay + clampedMod * lfoValue;
+            float delay = smoothedDelayTargets_[static_cast<std::size_t>(i)]
+                        + clampedMod * lfoValue;
             delay = std::max(FractionalDelayLine::kMinStableDelaySamples, delay);
             delayed_[static_cast<std::size_t>(i)] =
                 delayLines_[static_cast<std::size_t>(i)].readSample(delay);
         }
 
-        // ── Signed-Hadamard feedback mix ─────────────────────────────────────
-        // Pre-multiply by random ±1 signs before the FWHT.  The effective
-        // feedback matrix becomes D_pre × FWHT, which is orthogonal but has
-        // no regular structure — modal resonances are spread uniformly rather
-        // than concentrating in the Hadamard eigenmodes.
-        for (int i = 0; i < NumChannels; ++i)
-            mixed_[static_cast<std::size_t>(i)] = delayed_[static_cast<std::size_t>(i)]
-                                                * fwhtPreSigns_[static_cast<std::size_t>(i)];
-        dsp::applyOrthogonalMix(mixed_);
+        // ── Householder feedback mix ──────────────────────────────────────────
+        // H = I − (2/N)·11ᵀ  →  y_i = x_i − (2/N)·Σ delayed_
+        // Orthogonal (energy-preserving), O(N), and branchless.
+        // Unlike FWHT, Householder has no structured eigenmodes and cannot
+        // concentrate energy into Hadamard sub-loop resonances.
+        {
+            float hhSum = 0.0f;
+            for (int i = 0; i < NumChannels; ++i)
+                hhSum += delayed_[static_cast<std::size_t>(i)];
+            const float hhFactor = (2.0f / static_cast<float>(NumChannels)) * hhSum;
+            for (int i = 0; i < NumChannels; ++i)
+                mixed_[static_cast<std::size_t>(i)] =
+                    delayed_[static_cast<std::size_t>(i)] - hhFactor;
+        }
 
         // ── Feedback loop: per-channel gain → DC block → absorption → write ─────
         // channelGainCurrent_[i] = 10^(−3·D_i / T60_bass) independently for
@@ -605,23 +593,25 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
             float sampleValue = mixed_[static_cast<std::size_t>(i)]
                               * channelGainCurrent_[static_cast<std::size_t>(i)];
 
-            // DC blocker (one-pole HP at ~5 Hz) — prevents LF drift into shelves
+            // DC blocker (one-pole HP at ~5 Hz) — prevents LF drift
             hpState_[static_cast<std::size_t>(i)] +=
                 hpCoeff_ * (sampleValue - hpState_[static_cast<std::size_t>(i)]);
             sampleValue -= hpState_[static_cast<std::size_t>(i)];
 
-            // Multi-band absorption — AFTER DC blocker, BEFORE dry injection.
-            sampleValue = absorptionBanks_[static_cast<std::size_t>(i)].processSample(sampleValue);
+            // Jot one-pole HF damper — monotonic, no shelf resonances
+            lpState_[static_cast<std::size_t>(i)] =
+                lpCoeffCurrent_ * lpState_[static_cast<std::size_t>(i)]
+              + (1.0f - lpCoeffCurrent_) * sampleValue;
+            sampleValue = lpState_[static_cast<std::size_t>(i)];
+
+            // In-loop allpass smears comb modes every iteration
+            sampleValue = feedbackAllpasses_[static_cast<std::size_t>(i)].process(sampleValue);
             filtered_[static_cast<std::size_t>(i)] = sampleValue;
 
-            // ── Single-channel input injection ───────────────────────────────
-            // Inject only into channel 0.  A single-point B vector distributes
-            // input energy uniformly across ALL 16 Hadamard modes after the
-            // next FWHT pass — instead of concentrating all energy in the DC
-            // (all-ones) mode as the old equal all-channel injection did.
-            // Total energy unchanged: monoIn² = 16 × (monoIn × 0.25)² (same).
-            const float injectAmt = (i == 0) ? monoIn : 0.0f;
-            delayLines_[static_cast<std::size_t>(i)].writeSample(sampleValue + injectAmt);
+            // Distribute input across all channels (Hadamard-normalised energy).
+            // Pre-diffusion at ReverbEngine input + signed FWHT prevent DC-mode ping.
+            delayLines_[static_cast<std::size_t>(i)].writeSample(
+                sampleValue + monoIn * injectionNorm_);
         }
 
         // ── Signed-Hadamard output mix ───────────────────────────────────────
