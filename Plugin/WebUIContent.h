@@ -109,7 +109,7 @@ body::before{
   border-radius:var(--r);
   backdrop-filter:blur(40px);
   -webkit-backdrop-filter:blur(40px);
-  position:relative;overflow:hidden;
+  position:relative;z-index:200;overflow:visible;
 }
 /* top glint */
 .header::after{
@@ -133,7 +133,7 @@ body::before{
 .header-mid{flex:1;display:flex;justify-content:center;align-items:center;gap:8px}
 
 /* preset picker (custom dropdown — native <option> styling is unreliable in WebView2) */
-.preset-wrap{position:relative;display:flex;align-items:center;z-index:50}
+.preset-wrap{position:relative;display:flex;align-items:center;z-index:210}
 .preset-trigger{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   min-width:168px;padding:6px 12px;
@@ -151,17 +151,22 @@ body::before{
 .preset-chev{opacity:.55;transition:transform .2s ease;flex-shrink:0}
 .preset-trigger.open .preset-chev{transform:rotate(180deg)}
 .preset-menu{
-  position:absolute;top:calc(100% + 4px);left:0;right:0;
+  position:fixed;
   margin:0;padding:4px 0;list-style:none;
   background:var(--dropdown-bg);
   border:1px solid var(--border2);
   border-radius:var(--r-sm);
-  box-shadow:0 12px 32px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.04);
-  opacity:0;visibility:hidden;transform:translateY(-4px);
+  box-shadow:0 12px 32px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.06);
+  opacity:0;visibility:hidden;pointer-events:none;
+  transform:translateY(-4px);
   transition:opacity .15s ease,transform .15s ease,visibility .15s;
   max-height:220px;overflow-y:auto;
+  z-index:10000;
 }
-.preset-menu.open{opacity:1;visibility:visible;transform:translateY(0)}
+.preset-menu.open{
+  opacity:1;visibility:visible;pointer-events:auto;
+  transform:translateY(0);
+}
 .preset-item{
   padding:8px 14px;
   font-size:12px;font-weight:500;color:var(--text);
@@ -1109,6 +1114,16 @@ const PRESETS = [
   { value: '4', label: 'Cathedral' },
 ];
 
+function positionPresetMenu(){
+  const trigger = document.getElementById('presetTrigger');
+  const menu = document.getElementById('presetMenu');
+  if (!trigger || !menu) return;
+  const r = trigger.getBoundingClientRect();
+  menu.style.top = (r.bottom + 4) + 'px';
+  menu.style.left = r.left + 'px';
+  menu.style.width = Math.max(r.width, 168) + 'px';
+}
+
 function closePresetMenu(){
   const trigger = document.getElementById('presetTrigger');
   const menu = document.getElementById('presetMenu');
@@ -1137,9 +1152,11 @@ function initPresetDropdown(){
 
   trigger.addEventListener('click', e => {
     e.stopPropagation();
-    const open = menu.classList.toggle('open');
-    trigger.classList.toggle('open', open);
-    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const willOpen = !menu.classList.contains('open');
+    if (willOpen) positionPresetMenu();
+    menu.classList.toggle('open', willOpen);
+    trigger.classList.toggle('open', willOpen);
+    trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
   });
 
   menu.querySelectorAll('.preset-item[data-value]').forEach(item => {
@@ -1155,6 +1172,10 @@ function initPresetDropdown(){
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closePresetMenu();
+  });
+
+  window.addEventListener('resize', () => {
+    if (menu.classList.contains('open')) positionPresetMenu();
   });
 }
 

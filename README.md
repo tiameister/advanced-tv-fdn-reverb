@@ -1,6 +1,6 @@
 # TiaVerb
 
-An algorithmic reverb plugin I'm building as part of my **Computer Music Engineering (CME) master's** at **FAU Erlangen-Nürnberg**.
+An algorithmic reverb plugin I'm building as part of my **Communications and Multimedia Engineering (CME) master's** at **FAU Erlangen-Nürnberg**.
 
 This is a **work-in-progress student project**, not a finished commercial product. The DSP and UI are functional enough to load in a DAW and experiment with, but tuning, edge cases, and polish are still ongoing. Feedback and bug reports are welcome.
 
