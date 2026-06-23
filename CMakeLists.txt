@@ -113,6 +113,11 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
             OUTPUT  ${CMAKE_CURRENT_SOURCE_DIR}/Plugin/WebUIContent.h
             COMMAND ${PYTHON3} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/embed_html.py
             DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/WebUI/plugin_ui.html
+                    ${CMAKE_CURRENT_SOURCE_DIR}/WebUI/fonts/Inter-400.woff2
+                    ${CMAKE_CURRENT_SOURCE_DIR}/WebUI/fonts/Inter-500.woff2
+                    ${CMAKE_CURRENT_SOURCE_DIR}/WebUI/fonts/Inter-600.woff2
+                    ${CMAKE_CURRENT_SOURCE_DIR}/WebUI/fonts/Inter-700.woff2
+                    ${CMAKE_CURRENT_SOURCE_DIR}/WebUI/fonts/Inter-800.woff2
                     ${CMAKE_CURRENT_SOURCE_DIR}/Tools/embed_html.py
             COMMENT "[ProReverb] Embedding plugin_ui.html → WebUIContent.h"
         )

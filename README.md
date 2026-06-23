@@ -1,157 +1,226 @@
-# Pro Reverb — Algorithmic Reverb VST3
+# TiaVerb
 
-A state-of-the-art algorithmic reverb plugin built in pure C++20 with a JUCE shell.  
-Architecture: **TV-FDN** (Time-Varying Feedback Delay Network) + **Velvet Noise Early Reflections** + **Frequency-Dependent Decay (FDD)**.
+**Professional algorithmic reverb** by [Tia Audio](https://tiaaudio.com)
+
+TiaVerb is a high-end algorithmic reverb available as a **VST3 plugin** and **standalone application**. It combines a time-varying feedback delay network (TV-FDN), velvet-noise early reflections, frequency-dependent decay shaping, and proximity modelling in a modern web-based UI.
+
+| | |
+|---|---|
+| **Version** | 1.0.0 |
+| **Formats** | VST3, Standalone |
+| **Platforms** | Windows (macOS/Linux build supported via CMake) |
+| **License** | Proprietary — Copyright © 2026 Tia Audio |
 
 ---
 
-## Build instructions
+## Features
+
+- **TV-FDN engine** — 16-channel feedback delay network with prime-length lines, FWHT mixing, and multi-phase LFO modulation for dense, natural tails
+- **Velvet-noise early reflections** — decorrelated stereo ER field without metallic colouration
+- **Unified reverb time** — one control drives FDN feedback and per-band T60 targets together
+- **Interactive decay curve** — three-node bass / mid / HF shaping relative to reverb time
+- **Proximity control** — equal-power crossfade between early reflections (close) and late tail (far)
+- **Factory presets** — Small Room, Studio Plate, Drum Room, Large Hall, Cathedral
+- **Modern UI** — HTML/CSS/JS interface embedded via JUCE WebView2 (Windows)
+
+---
+
+## Quick start
+
+### Run standalone (Windows)
+
+```powershell
+.\build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe
+```
+
+### Install VST3
+
+Copy the bundle to your DAW's VST3 folder:
+
+```text
+build\ProReverb_artefacts\Release\VST3\TiaVerb.vst3
+→ C:\Program Files\Common Files\VST3\
+```
+
+Rescan plugins in your DAW. The plugin appears as **TiaVerb** by **Tia Audio**.
+
+### Batch render (offline testing)
+
+```powershell
+.\build\Release\batch_render.exe audio.wav renders
+```
+
+Renders the input through the DSP engine across distance × stereo-width configurations. See [BUILD.md](BUILD.md) for full build instructions.
+
+---
+
+## Build from source
 
 ### Prerequisites
 
-| Requirement | Version |
-|-------------|---------|
-| CMake       | ≥ 3.22  |
-| C++ compiler | MSVC 2022, GCC 12, or Clang 16 with C++20 |
-| JUCE        | 7.0.x (see below) |
+| Requirement | Notes |
+|-------------|-------|
+| CMake | ≥ 3.22 |
+| C++ compiler | MSVC 2022 (Windows), GCC 12+, or Clang 16+ with **C++20** |
+| JUCE | **8.0.x** — submodule, `JUCE_DIR`, or automatic FetchContent |
+| WebView2 SDK | Required on Windows for the web UI (NuGet package — see below) |
+
+### Windows: WebView2 (one-time)
+
+The UI requires the WebView2 static loader. Install via PowerShell:
+
+```powershell
+Register-PackageSource -provider NuGet -name nugetRepository -location https://www.nuget.org/api/v2
+Install-Package Microsoft.Web.WebView2 -Scope CurrentUser -RequiredVersion 1.0.1901.177 -Source nugetRepository
+```
+
+The Edge WebView2 **runtime** must also be installed on the target machine (usually already present on Windows 10/11).
 
 ### Getting JUCE
 
-Option A — **Git submodule** (recommended for offline/CI builds):
+**Option A — Git submodule** (recommended for offline/CI):
+
 ```bash
 git submodule add https://github.com/juce-framework/JUCE.git JUCE
 git submodule update --init --recursive
 ```
 
-Option B — **Explicit path** on the CMake command line:
-```
--DJUCE_DIR=C:/path/to/JUCE
+**Option B — Explicit path:**
+
+```bash
+cmake -B build -DJUCE_DIR=C:/path/to/JUCE
 ```
 
-Option C — **Automatic FetchContent** (requires internet access at configure time):  
-If neither of the above is available, CMake will download JUCE 7.0.12 automatically.
+**Option C — Automatic download** (requires internet at configure time):  
+CMake fetches JUCE 8.0.6 if no local copy is found.
 
 ### Configure and build
 
-```bash
-# DSP tests only (no JUCE required)
+```powershell
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+Build individual targets:
+
+| Target | Output |
+|--------|--------|
+| `ProReverb_VST3` | `build\ProReverb_artefacts\Release\VST3\TiaVerb.vst3` |
+| `ProReverb_Standalone` | `build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe` |
+| `batch_render` | `build\Release\batch_render.exe` |
+
+See [BUILD.md](BUILD.md) for a Windows-focused command reference.
+
+### DSP smoke tests (no JUCE UI)
+
+```powershell
 cmake -B build -DBUILD_VST3=OFF
 cmake --build build --config Release
-
-# Full plugin + tests
-cmake -B build
-cmake --build build --config Release
+.\build\Release\tvfdn_smoke_test.exe
+.\build\Release\reverb_smoke_test.exe
+.\build\Release\decay_smoke_test.exe
 ```
 
-The VST3 bundle will be output to:
-```
-build/ProReverb_artefacts/Release/VST3/Pro Reverb.vst3
-```
-
-### Running the smoke tests
-
-```bash
-./build/Release/tvfdn_smoke_test
-./build/Release/reverb_smoke_test
-./build/Release/decay_smoke_test
-```
-
-All three must print `PASS` with no `FAIL` lines.
+All three must print `PASS`.
 
 ---
 
-## Parameter reference
+## Parameters
 
-### Global
-
-| Parameter | Range | Default | Description |
-|-----------|-------|---------|-------------|
-| Pre-Delay | 0 – 500 ms | 0 ms | Global pre-delay applied to both ER and FDN paths. Automated with tape-style Doppler glide (Hermite FDL). |
-| Distance | 0 – 1 | 0.5 | Equal-power crossfade: 0 = ER only (close), 1 = FDN tail only (far). |
-| Wet Mix | 0 – 1 | 1.0 | Master dry/wet blend, per-sample smoothed. |
-
-### FDN
+### Main
 
 | Parameter | Range | Default | Description |
 |-----------|-------|---------|-------------|
-| FDN Feedback | 0 – 0.99 | 0.85 | Overall reverb length. See T60 coupling note below. |
-| Mod Depth | 0 – 2 smp | 0.75 | LFO modulation depth on delay lines. Breaks modal density; higher values add chorus-like movement. |
+| Reverb Time | 0.1 – 20 s | 2.5 s | Unified tail length — drives FDN feedback and band T60 targets |
+| Room Size | 0 – 1 | 0.33 | Scales internal delay-line lengths and diffusion character |
+| Pre-Delay | 0 – 500 ms | 0 ms | Global pre-delay with tape-style Doppler glide |
+| Proximity | 0 – 1 | 0.5 | 0 = early reflections only (close), 1 = late tail only (far) |
+| Wet Mix | 0 – 1 | 1.0 | Master dry/wet blend, per-sample smoothed |
 
-### Decay EQ
-
-Six parameters controlling how quickly each frequency band decays.  
-These are **relative T60 targets**, not absolute decay times — see the coupling note.
+### Character (advanced panel)
 
 | Parameter | Range | Default | Description |
 |-----------|-------|---------|-------------|
-| Low Freq | 20 – 2000 Hz | 250 Hz | Low-shelf corner frequency |
-| Low T60 | 0.1 – 20 s | 3.0 s | Decay time for bass frequencies |
-| Mid Freq | 200 – 10 000 Hz | 1500 Hz | Peak/bell centre frequency |
-| Mid T60 | 0.1 – 20 s | 2.0 s | Decay time for midrange frequencies |
-| High Freq | 1 000 – 20 000 Hz | 5000 Hz | High-shelf corner frequency |
-| High T60 | 0.1 – 10 s | 0.8 s | Decay time for high frequencies |
+| Mod Depth | 0 – 12 ms | 4 ms | LFO modulation on delay lines — breaks modal density |
+| Space | 0 – 2 | 1.0 | Stereo width of the late tail |
+| ER Length | 20 – 200 ms | 80 ms | Early reflection cluster duration |
+| ER Density | 500 – 8000 Hz | 3000 Hz | Velvet-noise tap density in the ER stage |
+
+### Decay curve
+
+Three multipliers shape per-band T60 **relative to Reverb Time**:
+
+| Parameter | Range | Default | Effect |
+|-----------|-------|---------|--------|
+| Bass Decay | 0.5 – 3.0× | 1.4× | Low-frequency tail length |
+| Mid Decay | 0.5 – 2.0× | 1.0× | Midrange reference |
+| HF Decay | 0.05 – 1.0× | 0.2× | High-frequency rolloff (air vs warmth) |
+
+**Example:** Reverb Time = 3 s, Bass Decay = 2.0× → bass T60 ≈ 6 s. HF Decay = 0.2× → treble T60 ≈ 0.6 s.
 
 ---
 
-## FDN Feedback / T60 interaction
+## Factory presets
 
-> **Important for preset designers and advanced users.**
-
-The per-channel loop gain at any frequency is the product of two terms:
-
-```
-loop_gain(f) = FDN_Feedback × AbsorptionBank_gain(f)
-```
-
-`AbsorptionBank_gain` is computed from the T60 target assuming `FDN_Feedback = 1.0`. Because `FDN_Feedback` is also multiplying the signal, the **actual realised T60 is always shorter** than the T60 knob value:
-
-```
-actual_T60 ≈ -3·D / log10(FDN_Feedback × 10^(-3·D / target_T60))
-```
-
-where `D` is the delay line round-trip time (3–18 ms for the 16 channels).
-
-### Practical guidance
-
-- Use **FDN Feedback** to set the overall perceived reverb length.
-- Use the **Decay EQ knobs** to shape the *spectral decay profile* (which frequencies die first), not the absolute duration.
-- With the default `Feedback = 0.85`, a `Low T60 = 3 s` target yields an actual bass decay of ~1.5 s. Increase Feedback toward 0.95–0.97 for longer tails.
-- **Rule of thumb:** the ratio between High T60 and Low T60 controls how "dark" or "airy" the late tail sounds. A 4:1 ratio (e.g. Low=3 s, High=0.75 s) mimics a furnished room; a 10:1 ratio (Low=5 s, High=0.5 s) mimics a stone cathedral.
+| Preset | Character |
+|--------|-----------|
+| Small Room | Tight, bright, lively — hard surfaces, short tail |
+| Studio Plate | Classic plate: dense, smooth, moderate length |
+| Drum Room | Punchy ER field, strong transients |
+| Large Hall | Concert hall with pronounced early reflections |
+| Cathedral | Maximum size, very long tail, rolling treble cut |
 
 ---
 
-## Architecture overview
+## Architecture
 
 ```
 Dry L/R
   │
-  ├──► FractionalDelayLine (Hermite) ──► Pre-delay output
-  │         (per-sample Doppler glide)
+  ├──► FractionalDelayLine (Hermite) ──► pre-delay
   │
-  ├──► EarlyReflections (Velvet Noise, independent L/R)
-  │         ──► erGain = cos(distance × π/2)
+  ├──► EarlyReflections (velvet noise, independent L/R)
+  │         └── erGain = cos(proximity × π/2)
   │
-  └──► TVFDNEngine (AdvancedFDN<16>)
-            16 prime-length delay lines
+  └──► TV-FDN (16 channels)
+            prime-length delay lines
             FWHT orthogonal mixing
-            Multi-phase wavetable LFOs
-            Per-channel AbsorptionBank (Low Shelf + Peak + High Shelf)
-              ↑ inserted AFTER DC blocker, BEFORE dry injection
-            ──► tailGain = sin(distance × π/2)
+            multi-phase wavetable LFOs
+            per-channel AbsorptionBank (inside feedback loop)
+            └── tailGain = sin(proximity × π/2)
   │
-  └──► masterWet blend (per-sample smoothed)
-  │
-  └──► Output L/R
+  └──► wet mix (per-sample smoothed) ──► Output L/R
+```
+
+The DSP core (`tvfdn_dsp`) is JUCE-free and testable without the plugin shell. The JUCE layer (`Plugin/`) provides APVTS parameter management, preset loading, and the WebView UI.
+
+---
+
+## Project structure
+
+```text
+DSP/           Core reverb engine (no JUCE dependency)
+Plugin/        JUCE processor, editors, presets, WebUI bridge
+WebUI/         HTML/CSS/JS plugin interface (embedded at build time)
+Tools/         batch_render CLI, embed_html.py
+Tests/         DSP smoke tests
 ```
 
 ---
 
-## Development phases
+## Support
+
+- **Website:** https://tiaaudio.com
+- **Email:** info@tiaaudio.com
+
+---
+
+## Development status
 
 | Phase | Status | Summary |
 |-------|--------|---------|
-| 1 | ✅ Complete | TV-FDN core: Hermite FDL, prime delays, FWHT, wavetable LFO |
-| 2 | ✅ Complete | Velvet Noise ER, ReverbEngine facade, pre-delay, distance EQ |
-| 3 | ✅ Complete | RBJ absorption banks inside FDN feedback loop, T60 → loop gain |
-| 4 | ✅ Complete | JUCE VST3 shell, APVTS, functional knob UI |
-| 5 | 🔜 Planned | Interactive decay-curve display (T60 vs frequency), preset browser |
+| 1 | ✅ | TV-FDN core: Hermite FDL, prime delays, FWHT, wavetable LFO |
+| 2 | ✅ | Velvet-noise ER, ReverbEngine facade, pre-delay, proximity |
+| 3 | ✅ | Absorption banks inside FDN loop, unified reverb time |
+| 4 | ✅ | JUCE VST3/Standalone shell, APVTS, web UI, factory presets |
+| 5 | ✅ | Interactive decay curve, native fallback editor |

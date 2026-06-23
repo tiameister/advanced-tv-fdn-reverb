@@ -5,6 +5,28 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TiaVerb</title>
 <style>
+/* Inter — bundled locally (WebUI/fonts/). embed_html.py inlines as data URIs
+   into WebUIContent.h so the VST shell needs no network access. */
+@font-face{
+  font-family:'Inter';font-style:normal;font-weight:400;font-display:swap;
+  src:url('fonts/Inter-400.woff2') format('woff2');
+}
+@font-face{
+  font-family:'Inter';font-style:normal;font-weight:500;font-display:swap;
+  src:url('fonts/Inter-500.woff2') format('woff2');
+}
+@font-face{
+  font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;
+  src:url('fonts/Inter-600.woff2') format('woff2');
+}
+@font-face{
+  font-family:'Inter';font-style:normal;font-weight:700;font-display:swap;
+  src:url('fonts/Inter-700.woff2') format('woff2');
+}
+@font-face{
+  font-family:'Inter';font-style:normal;font-weight:800;font-display:swap;
+  src:url('fonts/Inter-800.woff2') format('woff2');
+}
 /* ──────────────────────────────────────────────
    DESIGN TOKENS
 ────────────────────────────────────────────── */
@@ -12,13 +34,15 @@
   --bg:#080b12;
   --surface:rgba(255,255,255,.032);
   --surface2:rgba(255,255,255,.06);
-  --border:rgba(255,255,255,.065);
-  --border2:rgba(255,255,255,.13);
-  --text:#dce8f5;
-  --muted:#4a5a72;
-  --accent:#4f9eff;
-  --accent-dim:rgba(79,158,255,.18);
-  --accent-glow:rgba(79,158,255,.35);
+  --border:rgba(255,255,255,.05);
+  --border2:rgba(255,255,255,.12);
+  --text:#e0e0e0;
+  --muted:#6a7a90;
+  --accent:#4a90e2;
+  --accent-dim:rgba(74,144,226,.18);
+  --accent-glow:rgba(74,144,226,.4);
+  --dropdown-bg:#1e1e24;
+  --dropdown-hover:#2a2a35;
   --purple:#9b7af8;
   --warm:#f5a340;
   --warm-dim:rgba(245,163,64,.18);
@@ -26,6 +50,7 @@
   --r:14px;
   --r-sm:9px;
   --t:.15s ease;
+  --font:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
 }
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -33,13 +58,14 @@
 html,body{width:100%;height:100%;overflow:hidden}
 
 body{
-  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  font-family:var(--font);
   background:var(--bg);
   color:var(--text);
   display:flex;
   flex-direction:column;
   user-select:none;
   -webkit-user-select:none;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
 }
 
 /* subtle grid texture */
@@ -58,7 +84,7 @@ body::before{
   position:relative;z-index:1;
   display:flex;flex-direction:column;
   height:100vh;
-  padding:10px;gap:8px;
+  padding:10px;gap:10px;
 }
 
 /* ──────────────────────────────────────────────
@@ -95,22 +121,43 @@ body::before{
 
 .header-mid{flex:1;display:flex;justify-content:center;align-items:center;gap:8px}
 
-/* preset picker */
-.preset-wrap{position:relative;display:flex;align-items:center}
-.preset-wrap svg{position:absolute;right:9px;pointer-events:none;opacity:.5}
-select.preset{
-  appearance:none;-webkit-appearance:none;
-  background:var(--surface2);
+/* preset picker (custom dropdown — native <option> styling is unreliable in WebView2) */
+.preset-wrap{position:relative;display:flex;align-items:center;z-index:50}
+.preset-trigger{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  min-width:168px;padding:6px 12px;
+  background:var(--dropdown-bg);
   border:1px solid var(--border);
   border-radius:var(--r-sm);
   color:var(--text);
-  font-size:12px;font-family:inherit;
-  padding:5px 30px 5px 12px;
-  cursor:pointer;min-width:155px;
-  transition:border-color var(--t),background var(--t);
+  font-size:12px;font-weight:500;font-family:var(--font);
+  cursor:pointer;
+  transition:border-color var(--t),box-shadow var(--t),background var(--t);
 }
-select.preset:hover{border-color:var(--border2);background:rgba(255,255,255,.08)}
-select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.preset-trigger:hover{border-color:var(--border2);background:#252530}
+.preset-trigger:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.preset-trigger.open{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.preset-chev{opacity:.55;transition:transform .2s ease;flex-shrink:0}
+.preset-trigger.open .preset-chev{transform:rotate(180deg)}
+.preset-menu{
+  position:absolute;top:calc(100% + 4px);left:0;right:0;
+  margin:0;padding:4px 0;list-style:none;
+  background:var(--dropdown-bg);
+  border:1px solid var(--border2);
+  border-radius:var(--r-sm);
+  box-shadow:0 12px 32px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.04);
+  opacity:0;visibility:hidden;transform:translateY(-4px);
+  transition:opacity .15s ease,transform .15s ease,visibility .15s;
+  max-height:220px;overflow-y:auto;
+}
+.preset-menu.open{opacity:1;visibility:visible;transform:translateY(0)}
+.preset-item{
+  padding:8px 14px;
+  font-size:12px;font-weight:500;color:var(--text);
+  cursor:pointer;transition:background var(--t),color var(--t);
+}
+.preset-item:hover,.preset-item:focus{background:var(--accent);color:#fff;outline:none}
+.preset-item.placeholder{color:var(--muted);pointer-events:none;font-weight:400}
 
 .header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
 
@@ -140,6 +187,10 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
   border-radius:var(--r);
   padding:14px 18px 16px;
   flex-shrink:0;position:relative;overflow:hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.04),
+    inset 0 -1px 0 rgba(0,0,0,.25),
+    0 4px 20px rgba(0,0,0,.28);
 }
 /* left accent bar */
 .panel::before{
@@ -168,16 +219,19 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
 .panel-shell.collapsed .graph-body{max-height:0!important;opacity:0}
 .panel-head{
   display:flex;align-items:center;justify-content:space-between;
-  cursor:pointer;padding:0 4px 8px 6px;user-select:none;
+  cursor:pointer;padding:0 6px 10px 8px;user-select:none;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  margin-bottom:12px;
 }
 .panel-head:hover .panel-label{opacity:1}
+.panel-title{display:flex;align-items:baseline;gap:8px}
 .panel-label{
   font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-  opacity:.85;transition:opacity var(--t);
+  opacity:.92;transition:opacity var(--t);font-family:var(--font);
 }
 .panel.blue .panel-label{color:var(--accent)}
 .panel.warm .panel-label{color:var(--warm)}
-.panel-hint{font-size:8px;color:var(--muted);letter-spacing:.06em;margin-left:8px}
+.panel-hint{font-size:8px;font-weight:500;color:var(--muted);letter-spacing:.06em}
 .chevron{
   font-size:10px;color:var(--muted);transition:transform .25s ease,color var(--t);
   line-height:1;padding:2px 6px;
@@ -193,31 +247,49 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
    KNOB COMPONENT
 ────────────────────────────────────────────── */
 .knob-row{
-  display:flex;justify-content:space-around;align-items:flex-start;
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(76px,1fr));
+  align-items:start;justify-items:center;
+  gap:4px 2px;
+  padding:0 4px;
 }
+#rowMain{grid-template-columns:repeat(5,1fr)}
+#rowChar{grid-template-columns:repeat(4,1fr)}
 
 .knob{
-  display:flex;flex-direction:column;align-items:center;gap:3px;
-  padding:4px 6px 6px;border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;
+  gap:5px;width:76px;
+  padding:6px 4px 8px;border-radius:10px;
   cursor:ns-resize;
   transition:background var(--t);
 }
 .knob:hover{background:var(--surface2)}
 .knob.dragging{background:var(--accent-dim)}
 
-.knob svg{width:72px;height:72px;overflow:visible}
+.knob-svg-wrap{
+  position:relative;width:72px;height:72px;
+  display:flex;align-items:center;justify-content:center;
+}
+.knob svg{width:72px;height:72px;overflow:visible;display:block}
 
+.k-glow{fill:rgba(74,144,226,.12);filter:blur(0);pointer-events:none}
 .k-track{fill:none;stroke:rgba(255,255,255,.07);stroke-width:3.5;stroke-linecap:round}
-.k-arc  {fill:none;stroke-width:3.5;stroke-linecap:round;
-          filter:drop-shadow(0 0 4px currentColor)}
-.k-cap  {fill:#13161e;filter:drop-shadow(0 2px 8px #00000060)}
-.k-ind  {stroke:rgba(255,255,255,.85);stroke-width:1.5;stroke-linecap:round}
-.k-dot  {filter:drop-shadow(0 0 3px currentColor)}
+.k-arc  {fill:none;stroke-width:3.5;stroke-linecap:round}
+.k-cap  {fill:#13161e;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
+.k-ind  {stroke:rgba(255,255,255,.9);stroke-width:1.5;stroke-linecap:round}
+.k-dot  {pointer-events:none}
 
-.k-name{font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
-        color:var(--muted);text-align:center}
-.k-val {font-size:11px;font-weight:500;color:var(--text);text-align:center;
-        font-variant-numeric:tabular-nums;min-width:52px}
+.k-name{
+  font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);text-align:center;line-height:1.2;
+  font-family:var(--font);width:100%;
+}
+.k-val{
+  font-size:11px;font-weight:600;color:var(--text);text-align:center;
+  font-variant-numeric:tabular-nums;
+  font-family:var(--font);
+  min-width:56px;height:14px;line-height:14px;
+}
 
 /* ──────────────────────────────────────────────
    DECAY GRAPH
@@ -230,7 +302,14 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
   padding:12px 18px 10px;
   display:flex;flex-direction:column;
   position:relative;overflow:hidden;
+  margin-top:2px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.04),
+    inset 0 -1px 0 rgba(0,0,0,.25),
+    0 4px 20px rgba(0,0,0,.28);
 }
+.panel-shell + .graph-panel,
+#mainShell + .graph-panel{border-top:1px solid rgba(255,255,255,.06)}
 .graph-panel::before{
   content:'';position:absolute;
   left:0;top:10%;bottom:10%;width:3px;
@@ -243,7 +322,9 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
 }
 .graph-head{
   display:flex;align-items:center;justify-content:space-between;
-  margin-bottom:6px;padding-left:6px;flex-shrink:0;
+  margin-bottom:10px;padding:0 6px 10px 8px;flex-shrink:0;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  cursor:pointer;
 }
 .graph-label{
   font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
@@ -302,14 +383,14 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
       <svg class="logo-svg" viewBox="0 0 26 26" fill="none">
         <defs>
           <linearGradient id="gemGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#4f9eff" stop-opacity=".9"/>
+            <stop offset="0%" stop-color="#4a90e2" stop-opacity=".9"/>
             <stop offset="100%" stop-color="#9b7af8" stop-opacity=".9"/>
           </linearGradient>
         </defs>
         <polygon points="13,1 25,9 21,23 5,23 1,9"
-          fill="rgba(79,158,255,.12)" stroke="url(#gemGrad)" stroke-width="1.2"/>
+          fill="rgba(74,144,226,.12)" stroke="url(#gemGrad)" stroke-width="1.2"/>
         <polygon points="13,5 21,11 18,21 8,21 5,11"
-          fill="rgba(79,158,255,.18)"/>
+          fill="rgba(74,144,226,.18)"/>
         <polygon points="13,1 25,9 13,13" fill="rgba(255,255,255,.09)"/>
         <polygon points="13,1 1,9  13,13" fill="rgba(255,255,255,.05)"/>
         <circle cx="13" cy="13" r="3" fill="url(#gemGrad)" opacity=".8"/>
@@ -321,16 +402,21 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
     </div>
 
     <div class="header-mid">
-      <div class="preset-wrap">
-        <select class="preset" id="presetSel" onchange="onPresetChange(this.value)">
-          <option value="">- Presets -</option>
-          <option value="0">Small Room</option>
-          <option value="1">Studio Plate</option>
-          <option value="2">Drum Room</option>
-          <option value="3">Large Hall</option>
-          <option value="4">Cathedral</option>
-        </select>
-        <svg width="9" height="6" viewBox="0 0 9 6"><path fill="#6a7a90" d="M0 0l4.5 6L9 0z"/></svg>
+      <div class="preset-wrap" id="presetWrap">
+        <button class="preset-trigger" id="presetTrigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span id="presetLabel">- Presets -</span>
+          <svg class="preset-chev" width="9" height="6" viewBox="0 0 9 6" aria-hidden="true">
+            <path fill="currentColor" d="M0 0l4.5 6L9 0z"/>
+          </svg>
+        </button>
+        <ul class="preset-menu" id="presetMenu" role="listbox" aria-label="Presets">
+          <li class="preset-item placeholder" role="option">- Presets -</li>
+          <li class="preset-item" role="option" data-value="0" tabindex="-1">Small Room</li>
+          <li class="preset-item" role="option" data-value="1" tabindex="-1">Studio Plate</li>
+          <li class="preset-item" role="option" data-value="2" tabindex="-1">Drum Room</li>
+          <li class="preset-item" role="option" data-value="3" tabindex="-1">Large Hall</li>
+          <li class="preset-item" role="option" data-value="4" tabindex="-1">Cathedral</li>
+        </ul>
       </div>
     </div>
 
@@ -344,7 +430,7 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
   <div class="panel-shell" id="mainShell">
     <div class="panel blue">
       <div class="panel-head" onclick="togglePanel('mainShell')">
-        <div style="display:flex;align-items:baseline">
+        <div class="panel-title">
           <span class="panel-label">MAIN</span>
           <span class="panel-hint">Time / Size / Mix</span>
         </div>
@@ -376,7 +462,12 @@ select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px
   <!-- ═══ CHARACTER (advanced) ══════════════════════════════════════ -->
   <div class="char-wrap" id="charWrap">
     <div class="panel warm">
-      <div class="panel-label">CHARACTER</div>
+      <div class="panel-head" style="cursor:default;border-bottom:none;margin-bottom:8px;padding-bottom:0">
+        <div class="panel-title">
+          <span class="panel-label">CHARACTER</span>
+          <span class="panel-hint">Mod / Space / ER</span>
+        </div>
+      </div>
       <div class="knob-row" id="rowChar"></div>
     </div>
   </div>
@@ -528,9 +619,28 @@ function mkSvg(tag,attrs){
 }
 
 const COLORS = {
-  main:['#4f9eff','#7bb8ff'],
+  main:['#4a90e2','#6ba8f0'],
   char:['#9b7af8','#b89aff'],
 };
+
+function knobGlowFilter(id, color){
+  return `
+    <filter id="glow_${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5.5" result="blur"/>
+      <feComponentTransfer in="blur" result="soft">
+        <feFuncA type="linear" slope="0.45"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="soft"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="back_${id}" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="${color}" stop-opacity="0.22"/>
+      <stop offset="70%" stop-color="${color}" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+    </radialGradient>`;
+}
 
 function buildKnob(id, container){
   const p=SCHEMA[id];
@@ -540,29 +650,34 @@ function buildKnob(id, container){
   wrap.className='knob';
   wrap.dataset.id=id;
 
+  const svgWrap=document.createElement('div');
+  svgWrap.className='knob-svg-wrap';
+
   // SVG
   const svg=mkSvg('svg',{viewBox:'0 0 72 72'});
 
-  // Defs: gradient + glow filter
+  // Defs: gradient + centered soft glow
   const defs=mkSvg('defs',{});
-  const gid=`g_${id}`, fid=`f_${id}`;
+  const gid=`g_${id}`;
   defs.innerHTML=`
     <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="${c1}"/>
-      <stop offset="100%" stop-color="${c2}" stop-opacity=".7"/>
+      <stop offset="100%" stop-color="${c2}" stop-opacity=".75"/>
     </linearGradient>
-    <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="2.8" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>`;
+    ${knobGlowFilter(id, c1)}`;
   svg.appendChild(defs);
+
+  // Centered LED backlight (behind track)
+  svg.appendChild(mkSvg('circle',{
+    class:'k-glow',cx:CX,cy:CY,r:KR+6,fill:`url(#back_${id})`
+  }));
 
   // Track
   const track=mkSvg('path',{class:'k-track',d:arc(CX,CY,KR,ANG0,ANG0+SWEEP)});
   svg.appendChild(track);
 
   // Value arc
-  const varc=mkSvg('path',{class:'k-arc',stroke:`url(#${gid})`,filter:`url(#${fid})`});
+  const varc=mkSvg('path',{class:'k-arc',stroke:`url(#${gid})`,filter:`url(#glow_${id})`});
   svg.appendChild(varc);
 
   // Centre cap
@@ -573,10 +688,11 @@ function buildKnob(id, container){
   svg.appendChild(ind);
 
   // Tip dot
-  const dot=mkSvg('circle',{class:'k-dot',r:'3.5',fill:c1,filter:`url(#${fid})`});
+  const dot=mkSvg('circle',{class:'k-dot',r:'3.5',fill:c1});
   svg.appendChild(dot);
 
-  wrap.appendChild(svg);
+  svgWrap.appendChild(svg);
+  wrap.appendChild(svgWrap);
 
   // Labels
   const nm=document.createElement('div'); nm.className='k-name'; nm.textContent=p.label;
@@ -649,7 +765,7 @@ function buildKnob(id, container){
 const FMIN=20, FMAX=20000, MMIN=0.2, MMAX=3.3;
 const NODE_F  =[250,1500,5000];
 const NODE_IDS=['bassDecay','midDecay','hfDecay'];
-const NODE_COL=['#f5a340','#4f9eff','#3dd6c0'];
+const NODE_COL=['#f5a340','#4a90e2','#3dd6c0'];
 const NODE_NAMES=['Bass','Mid','High'];
 let GW=0,GH=0;
 const PAD={l:36,r:12,t:8,b:26};
@@ -835,9 +951,9 @@ function buildGraph(){
     ng.appendChild(mkSvg('circle',{id:`nh_${i}`,r:'20',fill:`url(#halo${i})`,opacity:'0',
       style:'transition:opacity .15s'}));
 
-    // Ring
+    // Ring — white border pops against dark gradient
     ng.appendChild(mkSvg('circle',{id:`nr_${i}`,r:'9',fill:col,
-      'fill-opacity':'.22',stroke:col,'stroke-width':'1.8',
+      'fill-opacity':'.35',stroke:'#ffffff','stroke-width':'2',
       filter:`url(#ng${i})`,style:'transition:r .12s'}));
 
     // Centre dot
@@ -972,13 +1088,63 @@ function toggleAdv(){
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   PRESET
+   PRESET (custom dropdown)
 ──────────────────────────────────────────────────────────────────────*/
+const PRESETS = [
+  { value: '0', label: 'Small Room' },
+  { value: '1', label: 'Studio Plate' },
+  { value: '2', label: 'Drum Room' },
+  { value: '3', label: 'Large Hall' },
+  { value: '4', label: 'Cathedral' },
+];
+
+function closePresetMenu(){
+  const trigger = document.getElementById('presetTrigger');
+  const menu = document.getElementById('presetMenu');
+  if (!trigger || !menu) return;
+  trigger.classList.remove('open');
+  trigger.setAttribute('aria-expanded', 'false');
+  menu.classList.remove('open');
+}
+
 function onPresetChange(v){
-  if(v==='') return;
-  bridge.send('loadPreset',{idx:parseInt(v)});
-  // reset dropdown after a tick
-  setTimeout(()=>{ document.getElementById('presetSel').value=''; },300);
+  if (v === '' || v === undefined) return;
+  const preset = PRESETS.find(p => p.value === String(v));
+  if (preset) document.getElementById('presetLabel').textContent = preset.label;
+  bridge.send('loadPreset', { idx: parseInt(v, 10) });
+  closePresetMenu();
+  setTimeout(() => {
+    document.getElementById('presetLabel').textContent = '- Presets -';
+  }, 1200);
+}
+
+function initPresetDropdown(){
+  const wrap = document.getElementById('presetWrap');
+  const trigger = document.getElementById('presetTrigger');
+  const menu = document.getElementById('presetMenu');
+  if (!wrap || !trigger || !menu) return;
+
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = menu.classList.toggle('open');
+    trigger.classList.toggle('open', open);
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  menu.querySelectorAll('.preset-item[data-value]').forEach(item => {
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      onPresetChange(item.dataset.value);
+    });
+  });
+
+  document.addEventListener('click', e => {
+    if (!wrap.contains(e.target)) closePresetMenu();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePresetMenu();
+  });
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -986,6 +1152,7 @@ function onPresetChange(v){
 ──────────────────────────────────────────────────────────────────────*/
 function init(){
   setAdvBtnLabel();
+  initPresetDropdown();
   ['reverbTime','size','preDelay','distance','masterWet'].forEach(id=>
     buildKnob(id, document.getElementById('rowMain')));
   ['modDepth','stereoWidth','erLength','erDensity'].forEach(id=>
