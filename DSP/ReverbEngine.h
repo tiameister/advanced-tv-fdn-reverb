@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EarlyReflections.h"
+#include "FractionalDelayLine.h"
 #include "TVFDNEngine.h"
 
 #include <cstdint>
@@ -12,30 +13,38 @@
  * Signal chain
  * ────────────
  *
- *   Dry L ──────────────────────────────────────────────────────────────────┐
- *           │                                                                │
- *           └──► PreDelayRing ──► delayedL ──┬──► EarlyReflections ──► erOutL ──► erGain ──┐
- *                                             │                                              + ──► wetL ──► out
- *                                             └──► FDN input ──► TVFDNEngine ──► fdnOutL ──► tailGain ─┘
+ *   Dry L ──────────────────────────────────────────────────────────────────────────────────────┐
+ *           │                                                                                    │
+ *           └──► FractionalDelayLine ──► delayedL ──┬──► EarlyReflections ──► erOutL ──► erGain ──┐
+ *                 (Thiran allpass)                  │                                              + ──► wetL
+ *                 (per-sample smoothed delay)        └──► FDN input ──► TVFDNEngine ──► fdnOutL ──► tailGain ─┘
  *
  *   (same topology for R)
  *
- * Key invariant: the undelayed dry signal feeds ONLY the output mix (dry
- * path). Both the ER and the FDN tank are driven by the same pre-delayed
- * signal, so the tail and reflections always start at the same moment in time.
+ * Both ER and FDN receive the same fractionally-delayed signal, so the tail
+ * and the reflections always depart from exactly the same moment in time.
+ * The master dry signal is undelayed, preserving the original transient.
  *
- * Distance parameter (equal-power crossfade)
- * ──────────────────────────────────────────
- *   erGain   = cos(distance * π/2)   →  1 at distance=0, 0 at distance=1
- *   tailGain = sin(distance * π/2)   →  0 at distance=0, 1 at distance=1
+ * Pre-delay automation (Doppler glide)
+ * ─────────────────────────────────────
+ * setPreDelayMs() writes to preDelayMsTarget_. A one-pole lowpass advances
+ * preDelayMsCurrent_ toward the target one sample at a time. Because
+ * FractionalDelayLine::readSample() accepts a float, a slowly-changing read
+ * position produces a smooth, tape-style pitch glide — no clicks.
  *
- * cos/sin are computed once in setDistance() and cached — zero transcendental
- * calls in the audio thread.
+ * Distance automation (zipper-free crossfade)
+ * ────────────────────────────────────────────
+ * setDistance() writes to distanceTarget_. A one-pole lowpass advances
+ * distanceCurrent_ per sample inside processBlock. erGain and tailGain are
+ * recomputed from distanceCurrent_ on every sample — no jumps possible.
+ * Linear crossfade is used (equal-amplitude). Upgrade to equal-power in
+ * Phase 3+ if desired.
  *
  * Real-time constraints
  * ─────────────────────
- *   • All scratch buffers and rings sized in prepare(); never reallocated.
+ *   • All scratch buffers and FDLs sized in prepare(); never reallocated.
  *   • processBlock() is allocation-free and lock-free.
+ *   • No sin()/cos()/malloc in the audio thread.
  */
 class ReverbEngine
 {
@@ -45,23 +54,23 @@ public:
     /**
      * Prepare all sub-modules.
      *
-     * @param sampleRate      Host sample rate (Hz).
-     * @param maxBlockSize    Maximum block size (samples).
-     * @param erLengthMs      ER window (ms). Default: 80.
-     * @param preDelayMs      Global pre-delay applied to both ER and FDN (ms, 0–500).
-     * @param erDensityHz     ER tap density (impulses/sec). Default: 3000.
-     * @param erMinSpacingMs  Minimum tap spacing (ms). Default: 1.
-     * @param seedL           PRNG seed for Left ER sequence.
-     * @param seedR           PRNG seed for Right ER sequence.
+     * @param sampleRate          Host sample rate (Hz).
+     * @param maxBlockSize        Maximum block size (samples).
+     * @param erLengthMs          ER window (ms). Default: 80.
+     * @param initialPreDelayMs   Starting pre-delay (ms, 0–500). Default: 0.
+     * @param erDensityHz         ER tap density (impulses/sec). Default: 3000.
+     * @param erMinSpacingMs      Minimum tap spacing (ms). Default: 1.
+     * @param seedL               PRNG seed for Left ER sequence.
+     * @param seedR               PRNG seed for Right ER sequence.
      */
     void prepare(double        sampleRate,
                  int           maxBlockSize,
-                 float         erLengthMs      = 80.0f,
-                 float         preDelayMs      = 0.0f,
-                 float         erDensityHz     = 3000.0f,
-                 float         erMinSpacingMs  = 1.0f,
-                 std::uint32_t seedL           = 0xABCD1234u,
-                 std::uint32_t seedR           = 0x5678EF90u);
+                 float         erLengthMs           = 80.0f,
+                 float         initialPreDelayMs     = 0.0f,
+                 float         erDensityHz           = 3000.0f,
+                 float         erMinSpacingMs        = 1.0f,
+                 std::uint32_t seedL                 = 0xABCD1234u,
+                 std::uint32_t seedR                 = 0x5678EF90u);
 
     void reset() noexcept;
 
@@ -71,13 +80,25 @@ public:
     // ── Parameter setters ────────────────────────────────────────────────────
 
     /**
-     * Distance (0..1) — equal-power crossfade between ER and FDN tail.
-     * 0 = close (ER only), 0.5 = balanced, 1 = far (tail only).
-     * Caches cos/sin gains immediately; safe to call from any thread before
-     * the next processBlock.
+     * Automate the global pre-delay (0–500 ms).
+     * Sets the target; smoothed per-sample in processBlock → tape-style Doppler
+     * glide when modulated, zero clicks on step changes.
      */
-    void setDistance(float d) noexcept;
-    float distance()          const noexcept { return distance_; }
+    void setPreDelayMs(float ms) noexcept
+    {
+        preDelayMsTarget_ = std::clamp(ms, 0.0f, kMaxPreDelayMs);
+    }
+
+    /**
+     * Distance (0..1) — linear crossfade between ER and FDN tail.
+     * Sets the target; smoothed per-sample in processBlock → zipper-free.
+     *   0 = close (ER dominates), 0.5 = balanced, 1 = far (tail dominates).
+     */
+    void setDistance(float d) noexcept
+    {
+        distanceTarget_ = std::clamp(d, 0.0f, 1.0f);
+    }
+    float distance() const noexcept { return distanceTarget_; }
 
     /** Master wet level: 0 = dry only, 1 = wet only. */
     void setMasterWet(float wet) noexcept { masterWet_ = std::clamp(wet, 0.0f, 1.0f); }
@@ -93,21 +114,28 @@ public:
     const TVFDNEngine&       fdn()             const noexcept { return fdn_; }
 
 private:
-    static int nextPowerOfTwo(int v) noexcept;
+    static constexpr float kMaxPreDelayMs = 500.0f;
 
-    EarlyReflections er_;
-    TVFDNEngine      fdn_;
+    EarlyReflections    er_;
+    TVFDNEngine         fdn_;
 
-    // ── Global pre-delay ring (L and R independent) ──────────────────────────
-    std::vector<float> preDelayRingL_;
-    std::vector<float> preDelayRingR_;
-    int preDelayMask_    = 0;
-    int preDelayWriteL_  = 0;
-    int preDelayWriteR_  = 0;
-    int preDelaySamples_ = 0;
+    // ── Fractional pre-delay lines (one per channel) ─────────────────────────
+    // Sized for kMaxPreDelayMs in prepare(). Automatable with Doppler glide.
+    FractionalDelayLine preDelayL_;
+    FractionalDelayLine preDelayR_;
+
+    // ── Pre-delay smoothing state ─────────────────────────────────────────────
+    float preDelayMsTarget_  = 0.0f;
+    float preDelayMsCurrent_ = 0.0f;
+    float preDelaySmCoeff_   = 0.0f; // one-pole coefficient (~30 ms time constant)
+
+    // ── Distance smoothing state ──────────────────────────────────────────────
+    float distanceTarget_    = 0.5f;
+    float distanceCurrent_   = 0.5f;
+    float distanceSmoothCoeff_ = 0.0f; // one-pole coefficient (~50 ms time constant)
 
     // ── Scratch buffers (all sized in prepare) ───────────────────────────────
-    std::vector<float> delayedL_;   // pre-delayed input, fed to ER + FDN
+    std::vector<float> delayedL_;   // pre-delayed input → ER + FDN
     std::vector<float> delayedR_;
     std::vector<float> erOutL_;
     std::vector<float> erOutR_;
@@ -116,11 +144,8 @@ private:
     std::vector<float> fdnOutL_;
     std::vector<float> fdnOutR_;
 
-    // ── Parameters ───────────────────────────────────────────────────────────
-    float masterWet_    = 1.0f;
-    float distance_     = 0.5f;
-    float erGainCached_   = 0.7071f;  // cos(0.5 * π/2)
-    float tailGainCached_ = 0.7071f;  // sin(0.5 * π/2)
-
-    bool prepared_ = false;
+    // ── Engine state ─────────────────────────────────────────────────────────
+    double sampleRate_  = 44100.0;
+    float  masterWet_   = 1.0f;
+    bool   prepared_    = false;
 };

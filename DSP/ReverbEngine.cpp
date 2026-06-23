@@ -3,45 +3,44 @@
 #include <algorithm>
 #include <cmath>
 
-int ReverbEngine::nextPowerOfTwo(int v) noexcept
-{
-    int p = 1;
-    while (p < v)
-        p <<= 1;
-    return p;
-}
-
-void ReverbEngine::setDistance(float d) noexcept
-{
-    distance_       = std::clamp(d, 0.0f, 1.0f);
-    constexpr float kHalfPi = 1.5707963267948966f;
-    // Computed here (setup/UI thread) — never in the audio thread
-    erGainCached_   = std::cos(distance_ * kHalfPi);
-    tailGainCached_ = std::sin(distance_ * kHalfPi);
-}
-
 void ReverbEngine::prepare(double        sampleRate,
                            int           maxBlockSize,
                            float         erLengthMs,
-                           float         preDelayMs,
+                           float         initialPreDelayMs,
                            float         erDensityHz,
                            float         erMinSpacingMs,
                            std::uint32_t seedL,
                            std::uint32_t seedR)
 {
+    sampleRate_     = sampleRate;
     const int blockSize = std::max(1, maxBlockSize);
 
-    // ── Pre-delay ring ────────────────────────────────────────────────────────
-    const float clampedPreMs = std::clamp(preDelayMs, 0.0f, 500.0f);
-    preDelaySamples_ = static_cast<int>(
-        clampedPreMs * static_cast<float>(sampleRate) * 0.001f);
-    const int preDelayCapacity = nextPowerOfTwo(preDelaySamples_ + blockSize + 2);
-    preDelayMask_ = preDelayCapacity - 1;
+    // ── Fractional pre-delay lines ────────────────────────────────────────────
+    // Capacity covers the full 0–500 ms range at any sample rate.
+    const int maxPreDelaySamples = static_cast<int>(
+        kMaxPreDelayMs * static_cast<float>(sampleRate) * 0.001f) + 4;
 
-    preDelayRingL_.assign(static_cast<std::size_t>(preDelayCapacity), 0.0f);
-    preDelayRingR_.assign(static_cast<std::size_t>(preDelayCapacity), 0.0f);
-    preDelayWriteL_ = 0;
-    preDelayWriteR_ = 0;
+    preDelayL_.prepare(maxPreDelaySamples);
+    preDelayR_.prepare(maxPreDelaySamples);
+
+    // One-pole smoothing coefficient for pre-delay time (~30 ms time constant).
+    // Gives a natural tape-style Doppler glide during automation.
+    preDelaySmCoeff_ = 1.0f - std::exp(
+        -1.0f / (0.030f * static_cast<float>(sampleRate)));
+
+    // Seed both target and current so prepare() produces no initial glide.
+    const float clampedPreMs  = std::clamp(initialPreDelayMs, 0.0f, kMaxPreDelayMs);
+    preDelayMsTarget_  = clampedPreMs;
+    preDelayMsCurrent_ = clampedPreMs;
+
+    // ── Distance smoothing ────────────────────────────────────────────────────
+    // One-pole smoothing coefficient (~50 ms time constant).
+    // Ensures no zipper noise when distance_ is automated in a DAW.
+    distanceSmoothCoeff_ = 1.0f - std::exp(
+        -1.0f / (0.050f * static_cast<float>(sampleRate)));
+
+    // Snap current to target so there is no sweep on first processBlock call.
+    distanceCurrent_ = distanceTarget_;
 
     // ── Scratch buffers ───────────────────────────────────────────────────────
     const auto sz = static_cast<std::size_t>(blockSize);
@@ -55,17 +54,13 @@ void ReverbEngine::prepare(double        sampleRate,
     fdnOutR_.assign(sz, 0.0f);
 
     // ── Sub-modules ───────────────────────────────────────────────────────────
-    // EarlyReflections no longer takes preDelayMs — timing is handled here.
     er_.prepare(sampleRate, blockSize,
                 erLengthMs,
                 erDensityHz, erMinSpacingMs,
                 seedL, seedR);
 
     fdn_.prepare(sampleRate, blockSize);
-    fdn_.setDryWet(1.0f); // ReverbEngine owns the master dry/wet
-
-    // Cache initial distance gains
-    setDistance(distance_);
+    fdn_.setDryWet(1.0f); // ReverbEngine owns the master dry/wet blend
 
     prepared_ = true;
     reset();
@@ -73,13 +68,16 @@ void ReverbEngine::prepare(double        sampleRate,
 
 void ReverbEngine::reset() noexcept
 {
+    preDelayL_.reset();
+    preDelayR_.reset();
+
+    // Snap smoothed values to their targets — prevents a Doppler sweep or
+    // distance sweep from silence when the DAW transport restarts.
+    preDelayMsCurrent_ = preDelayMsTarget_;
+    distanceCurrent_   = distanceTarget_;
+
     er_.reset();
     fdn_.reset();
-
-    std::fill(preDelayRingL_.begin(), preDelayRingL_.end(), 0.0f);
-    std::fill(preDelayRingR_.begin(), preDelayRingR_.end(), 0.0f);
-    preDelayWriteL_ = 0;
-    preDelayWriteR_ = 0;
 
     std::fill(delayedL_.begin(), delayedL_.end(), 0.0f);
     std::fill(delayedR_.begin(), delayedR_.end(), 0.0f);
@@ -96,24 +94,30 @@ void ReverbEngine::processBlock(float* left, float* right, int numSamples) noexc
     if (!prepared_ || numSamples <= 0)
         return;
 
-    const int   pdMask    = preDelayMask_;
-    const int   pdSamples = preDelaySamples_;
+    const float srMs         = static_cast<float>(sampleRate_) * 0.001f; // samples per ms
+    const float pdSmCoeff    = preDelaySmCoeff_;
+    const float distSmCoeff  = distanceSmoothCoeff_;
 
-    // ── Step 1: Global pre-delay ──────────────────────────────────────────────
-    // Write dry into the ring and read the delayed version into scratch.
-    // The master dry (left/right) remains untouched for the output blend.
+    // ── Step 1: Per-sample fractional pre-delay with Doppler glide ────────────
+    //
+    // preDelayMsCurrent_ tracks preDelayMsTarget_ via a one-pole filter.
+    // Because FractionalDelayLine::readSample() takes a float, a slowly-moving
+    // delay time produces the same pitch-shift artifact as a tape machine — the
+    // exact behaviour desired when automating pre-delay in a DAW.
+    //
+    // The dry signal (left/right) is left untouched here. Only the delayed copy
+    // written to delayedL_/R_ drives ER and FDN.
     for (int i = 0; i < numSamples; ++i)
     {
-        preDelayRingL_[static_cast<std::size_t>(preDelayWriteL_)] = left[i];
-        preDelayRingR_[static_cast<std::size_t>(preDelayWriteR_)] = right[i];
+        preDelayMsCurrent_ += pdSmCoeff * (preDelayMsTarget_ - preDelayMsCurrent_);
 
-        const int rdL = (preDelayWriteL_ - pdSamples + pdMask + 1) & pdMask;
-        const int rdR = (preDelayWriteR_ - pdSamples + pdMask + 1) & pdMask;
-        delayedL_[i] = preDelayRingL_[static_cast<std::size_t>(rdL)];
-        delayedR_[i] = preDelayRingR_[static_cast<std::size_t>(rdR)];
+        // Convert ms to samples; FDL internally clamps to kMinStableDelaySamples
+        const float delaySamples = preDelayMsCurrent_ * srMs;
 
-        preDelayWriteL_ = (preDelayWriteL_ + 1) & pdMask;
-        preDelayWriteR_ = (preDelayWriteR_ + 1) & pdMask;
+        preDelayL_.writeSample(left[i]);
+        preDelayR_.writeSample(right[i]);
+        delayedL_[i] = preDelayL_.readSample(delaySamples);
+        delayedR_[i] = preDelayR_.readSample(delaySamples);
     }
 
     // ── Step 2: Early reflections from the pre-delayed signal ─────────────────
@@ -121,28 +125,34 @@ void ReverbEngine::processBlock(float* left, float* right, int numSamples) noexc
                      erOutL_.data(), erOutR_.data(),
                      numSamples);
 
-    // ── Step 3: Feed pre-delayed signal into FDN (seeded with ER) ─────────────
+    // ── Step 3: Pre-delayed signal + ER → FDN input ────────────────────────────
     for (int i = 0; i < numSamples; ++i)
     {
         fdnInL_[i] = delayedL_[i] + erOutL_[i];
         fdnInR_[i] = delayedR_[i] + erOutR_[i];
     }
 
-    // ── Step 4: FDN tail (100 % wet, into dedicated output buffers) ───────────
+    // ── Step 4: FDN diffuse tail (100 % wet) ──────────────────────────────────
     fdn_.processBlock(fdnInL_.data(), fdnInR_.data(),
                       fdnOutL_.data(), fdnOutR_.data(),
                       numSamples);
 
-    // ── Step 5: Distance crossfade + master dry/wet blend ─────────────────────
-    // erGainCached_ and tailGainCached_ are pre-computed in setDistance().
-    // No sin/cos in the audio thread.
-    const float erGain   = erGainCached_;
-    const float tailGain = tailGainCached_;
-    const float wet      = masterWet_;
-    const float dry      = 1.0f - wet;
+    // ── Step 5: Per-sample distance smoothing + master dry/wet blend ──────────
+    //
+    // distanceCurrent_ tracks distanceTarget_ via a one-pole filter. erGain and
+    // tailGain are recalculated from distanceCurrent_ on every sample, so no
+    // jump in the gains is ever possible regardless of how fast the DAW writes
+    // automation events. Linear crossfade (equal-amplitude).
+    const float wet = masterWet_;
+    const float dry = 1.0f - wet;
 
     for (int i = 0; i < numSamples; ++i)
     {
+        distanceCurrent_ += distSmCoeff * (distanceTarget_ - distanceCurrent_);
+
+        const float erGain   = 1.0f - distanceCurrent_;
+        const float tailGain = distanceCurrent_;
+
         const float wetL = erOutL_[i] * erGain + fdnOutL_[i] * tailGain;
         const float wetR = erOutR_[i] * erGain + fdnOutR_[i] * tailGain;
         left[i]  = left[i]  * dry + wetL * wet;
