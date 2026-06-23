@@ -113,10 +113,25 @@ void ReverbPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     pHighFreq_  = apvts.getRawParameterValue(kParamHighFreq);
     pHighT60_   = apvts.getRawParameterValue(kParamHighT60);
 
-    // Invalidate shadows so setDecayEQ fires on the first processBlock
-    prevLowFreq_ = prevLowT60_ = -1.0f;
-    prevMidFreq_ = prevMidT60_ = -1.0f;
+    // ── Pre-allocate mono scratch buffer ──────────────────────────────────────
+    // Sized here so processBlock's mono-fallback path is allocation-free.
+    monoScratchR_.resize(static_cast<std::size_t>(std::max(1, samplesPerBlock)));
+
+    // ── Invalidate shadows ────────────────────────────────────────────────────
+    // Forces setDecayEQ to fire on the very first processBlock so the engine
+    // is fully configured even if prepare is called before any UI interaction.
+    prevLowFreq_  = prevLowT60_  = -1.0f;
+    prevMidFreq_  = prevMidT60_  = -1.0f;
     prevHighFreq_ = prevHighT60_ = -1.0f;
+
+    // ── Push all APVTS values immediately ─────────────────────────────────────
+    // Without this the engine runs with constructor defaults for one block.
+    // Decay EQ is handled by the shadow invalidation above (fires next block).
+    if (pPreDelay_)   reverbEngine_.setPreDelayMs (pPreDelay_ ->load(std::memory_order_relaxed));
+    if (pDistance_)   reverbEngine_.setDistance   (pDistance_ ->load(std::memory_order_relaxed));
+    if (pMasterWet_)  reverbEngine_.setMasterWet  (pMasterWet_->load(std::memory_order_relaxed));
+    if (pFeedback_)   reverbEngine_.setFdnFeedback(pFeedback_ ->load(std::memory_order_relaxed));
+    if (pModDepth_)   reverbEngine_.setFdnModDepth(pModDepth_ ->load(std::memory_order_relaxed));
 }
 
 // ── processBlock ──────────────────────────────────────────────────────────────
@@ -153,11 +168,23 @@ void ReverbPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     reverbEngine_.setFdnFeedback(feedback);
     reverbEngine_.setFdnModDepth(modDepth);
 
-    // ── 3. Decay EQ — only recalculate when a parameter has changed ───────────
-    // updateFilterCoefficients() uses pow/sin/cos × 16 channels; skip if idle.
-    if (lf != prevLowFreq_ || lt != prevLowT60_ ||
-        mf != prevMidFreq_ || mt != prevMidT60_ ||
-        hf != prevHighFreq_ || ht != prevHighT60_)
+    // ── 3. Decay EQ — epsilon-gated coefficient recompute ────────────────────
+    // updateFilterCoefficients() calls pow/sin/cos × 16 channels — heavy.
+    // Two failure modes guard against without epsilon:
+    //   (a) Automation jitter: DAW writes tiny float noise each block, exact
+    //       equality always fails → full recompute every block under playback.
+    //   (b) Session reload: shadows reset to -1 but new values might coincide
+    //       with default by accident → now always fires after replaceState.
+    // kFreqEps = 0.5 Hz, kT60Eps = 10 ms — both below audible threshold.
+    const bool decayChanged =
+        std::abs(lf - prevLowFreq_)  > kFreqEps ||
+        std::abs(lt - prevLowT60_)   > kT60Eps  ||
+        std::abs(mf - prevMidFreq_)  > kFreqEps ||
+        std::abs(mt - prevMidT60_)   > kT60Eps  ||
+        std::abs(hf - prevHighFreq_) > kFreqEps ||
+        std::abs(ht - prevHighT60_)  > kT60Eps;
+
+    if (decayChanged)
     {
         reverbEngine_.setDecayEQ(lf, lt, mf, mt, hf, ht);
         prevLowFreq_  = lf;  prevLowT60_  = lt;
@@ -174,13 +201,14 @@ void ReverbPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     else
     {
-        // Mono fallback: duplicate channel to fake stereo, then sum back
+        // Mono fallback: duplicate into pre-allocated scratch (no heap alloc),
+        // process stereo, then average back to mono.
+        jassert(numSamples <= static_cast<int>(monoScratchR_.size()));
         float* mono = buffer.getWritePointer(0);
-        std::vector<float> tmpR(static_cast<std::size_t>(numSamples));
-        std::copy(mono, mono + numSamples, tmpR.begin());
-        reverbEngine_.processBlock(mono, tmpR.data(), numSamples);
+        std::copy(mono, mono + numSamples, monoScratchR_.begin());
+        reverbEngine_.processBlock(mono, monoScratchR_.data(), numSamples);
         for (int i = 0; i < numSamples; ++i)
-            mono[i] = 0.5f * (mono[i] + tmpR[static_cast<std::size_t>(i)]);
+            mono[i] = 0.5f * (mono[i] + monoScratchR_[static_cast<std::size_t>(i)]);
     }
 }
 
@@ -189,6 +217,9 @@ void ReverbPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 void ReverbPluginProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
     auto state = apvts.copyState();
+    // Version stamp — future code can read this in setStateInformation to
+    // migrate parameter values from older preset formats before replaceState.
+    state.setProperty("version", 1, nullptr);
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, dest);
 }
@@ -197,7 +228,20 @@ void ReverbPluginProcessor::setStateInformation(const void* data, int sizeInByte
 {
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml && xml->hasTagName(apvts.state.getType()))
-        apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    {
+        auto tree = juce::ValueTree::fromXml(*xml);
+        // Future: inspect tree.getProperty("version") here to migrate params
+        // from older formats before calling replaceState.
+        apvts.replaceState(tree);
+    }
+
+    // CRITICAL: Invalidate decay-EQ shadows after every state reload.
+    // Without this, if the restored preset's six Decay EQ values happen to
+    // match the current shadows exactly, setDecayEQ is skipped and the engine
+    // continues running with stale coefficients from the previous session.
+    prevLowFreq_  = prevLowT60_  = -1.0f;
+    prevMidFreq_  = prevMidT60_  = -1.0f;
+    prevHighFreq_ = prevHighT60_ = -1.0f;
 }
 
 // ── Editor factory ────────────────────────────────────────────────────────────

@@ -89,11 +89,27 @@ void ReverbPluginEditor::LabelledKnob::init(APVTS& apvts,
 
     label.setText(displayName, juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centred);
-    label.setFont(juce::Font(11.0f, juce::Font::plain));
+    label.setFont(juce::Font(11.0f));   // plain is the default — no flag needed
     label.setColour(juce::Label::textColourId, juce::Colour(Col::textDim));
     parent->addAndMakeVisible(label);
 
     attachment = std::make_unique<APVTS::SliderAttachment>(apvts, paramId, slider);
+}
+
+// ── Destructor ────────────────────────────────────────────────────────────────
+// JUCE best practice: remove LookAndFeel pointer from every slider before the
+// editor is torn down. gLnF is a file-scope static so it outlives editors, but
+// clearing explicitly prevents JUCE assertion failures if the static order ever
+// changes, and makes intentions clear to future readers.
+
+ReverbPluginEditor::~ReverbPluginEditor()
+{
+    for (LabelledKnob* k : { &kPreDelay_, &kDistance_, &kMasterWet_,
+                              &kFeedback_, &kModDepth_,
+                              &kLowFreq_,  &kLowT60_,
+                              &kMidFreq_,  &kMidT60_,
+                              &kHighFreq_, &kHighT60_ })
+        k->slider.setLookAndFeel(nullptr);
 }
 
 // ── Constructor ───────────────────────────────────────────────────────────────
@@ -120,7 +136,7 @@ ReverbPluginEditor::ReverbPluginEditor(ReverbPluginProcessor& proc)
     auto initHeader = [this](juce::Label& lbl, const juce::String& text)
     {
         lbl.setText(text, juce::dontSendNotification);
-        lbl.setFont(juce::Font(12.0f, juce::Font::bold));
+        lbl.setFont(juce::Font(12.0f).boldened());
         lbl.setColour(juce::Label::textColourId, juce::Colour(Col::accent));
         lbl.setJustificationType(juce::Justification::left);
         addAndMakeVisible(lbl);
@@ -145,7 +161,7 @@ void ReverbPluginEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(Col::accent));
     g.fillRect(0, 0, 4, 44);
 
-    g.setFont(juce::Font(20.0f, juce::Font::bold));
+    g.setFont(juce::Font(20.0f).boldened());
     g.setColour(juce::Colour(Col::textMain));
     g.drawText("PRO REVERB", 14, 0, 240, 44, juce::Justification::centredLeft);
 

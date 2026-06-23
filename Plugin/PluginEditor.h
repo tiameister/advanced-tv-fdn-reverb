@@ -23,7 +23,7 @@ class ReverbPluginEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit ReverbPluginEditor(ReverbPluginProcessor& proc);
-    ~ReverbPluginEditor() override = default;
+    ~ReverbPluginEditor() override; // clears LookAndFeel pointers — see .cpp
 
     void paint  (juce::Graphics& g) override;
     void resized() override;

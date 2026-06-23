@@ -88,7 +88,7 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
 
     baseDelaySamples_ = computePrimeDelaySamples(sampleRate);
 
-  maxDelaySamples_ = 0;
+    maxDelaySamples_ = 0;
     for (const int delay : baseDelaySamples_)
         maxDelaySamples_ = std::max(maxDelaySamples_, delay);
 
