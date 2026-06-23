@@ -40,12 +40,13 @@
  *   size=0.67 → ~[ 7, 40] ms  large hall
  *   size=1.00 → ~[15, 80] ms  cathedral
  *
- * Output tap topology (post-FWHT)
- * ────────────────────────────────
- * The audible output is tapped from mixed_[i] (post-FWHT diffuse field) so both
- * L and R outputs are enveloping blends of all 16 delay lines, not just 8.
- * Level is preserved: mixed_[i] × norm ≈ delayed_[i] × norm for uncorrelated
- * channels (FWHT is unitary).
+ * Output tap topology (post-absorption, double diffusion)
+ * ───────────────────────────────────────────────────────
+ * Wet output is tapped from the *damped* recirculating signal (after DC block +
+ * AbsorptionBank), then passed through a second FWHT before stereo accumulation.
+ * Tapping pre-damping mixed_[i] exposes raw comb resonances — audible when
+ * Distance=1 (pure tail).  Input is mono-summed into all channels so the tank
+ * is not seeded with alternating L/R comb modes.
  *
  * Stereo width (M/S)
  * ──────────────────
@@ -110,10 +111,10 @@ private:
     static constexpr float kAbsMaxDelayMs     = 80.0f;  // buffer allocation ceiling
     static constexpr float kDefaultSize       = 0.33f;  // ≈ medium room [3, 18] ms
 
-    // Delay-time LFO depth in ms. Values < ~1 ms leave static comb modes audible.
-    static constexpr float kDefaultModDepthMs = 2.5f;
-    static constexpr float kMaxModDepthMs     = 8.0f;
-    static constexpr float kAllocModDepthMs   = 10.0f; // buffer headroom at prepare()
+    // Delay-time LFO depth in ms. Tail-only listening needs ≥3 ms to smear comb modes.
+    static constexpr float kDefaultModDepthMs = 4.0f;
+    static constexpr float kMaxModDepthMs     = 12.0f;
+    static constexpr float kAllocModDepthMs   = 14.0f; // buffer headroom at prepare()
     static constexpr float kDcBlockerCutoffHz = 5.0f;
 
     // ── Fixed decay-EQ corner / centre frequencies ────────────────────────────
@@ -179,6 +180,9 @@ private:
     std::array<float, NumChannels> lfoBlockStep_{};
     std::array<float, NumChannels> delayed_{};
     std::array<float, NumChannels> mixed_{};
+    std::array<float, NumChannels> filtered_{};   // post-absorption, for wet output
+    std::array<float, NumChannels> outPanL_{};     // decorrelated stereo output weights
+    std::array<float, NumChannels> outPanR_{};
 
     // ── Click-free size morphing ───────────────────────────────────────────────
     // Per-channel one-pole smoothers that track baseDelaySamples_[i] with a

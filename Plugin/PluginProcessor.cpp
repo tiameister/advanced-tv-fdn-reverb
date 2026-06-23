@@ -46,7 +46,7 @@ ReverbPluginProcessor::createParameterLayout()
     // ── Character controls ────────────────────────────────────────────────────
     params.push_back(std::make_unique<Param>(
         kParamModDepth, "Mod Depth",
-        Range{ 0.0f, 8.0f, 0.01f }, 2.5f,
+        Range{ 0.0f, 12.0f, 0.01f }, 4.0f,
         juce::AudioParameterFloatAttributes{}.withLabel("ms")));
 
     params.push_back(std::make_unique<Param>(
@@ -133,7 +133,7 @@ void ReverbPluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     reverbEngine_.setPreDelayMs   (load(pPreDelay_,    0.0f));
     reverbEngine_.setDistance     (load(pDistance_,    0.5f));
     reverbEngine_.setMasterWet    (load(pMasterWet_,   1.0f));
-    reverbEngine_.setFdnModDepth  (load(pModDepth_,    2.5f));
+    reverbEngine_.setFdnModDepth  (load(pModDepth_,    4.0f));
     reverbEngine_.setFdnStereoWidth(load(pStereoWidth_, 1.0f));
     reverbEngine_.setErLength     (load(pErLength_,    80.0f));
     reverbEngine_.setErDensity    (load(pErDensity_,   3000.0f));
@@ -164,7 +164,7 @@ void ReverbPluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float preDelay    = load(pPreDelay_,    0.0f);
     const float distance    = load(pDistance_,    0.5f);
     const float masterWet   = load(pMasterWet_,   1.0f);
-    const float modDepth    = load(pModDepth_,    2.5f);
+    const float modDepth    = load(pModDepth_,    4.0f);
     const float stereoWidth = load(pStereoWidth_, 1.0f);
     const float erLength    = load(pErLength_,    80.0f);
     const float erDensity   = load(pErDensity_,   3000.0f);

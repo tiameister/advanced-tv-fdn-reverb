@@ -156,16 +156,38 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     for (auto& line : delayLines_)
         line.prepare(lineCapacity);
 
-    // ── LFOs ──────────────────────────────────────────────────────────────────
-    constexpr float twoPi    = 6.283185307179586f;
-    constexpr float rateStep = 0.06f;
-    constexpr float baseRate = 0.07f;
+    // ── LFOs (incommensurate rates — breaks periodic mode reinforcement) ─────
+    static constexpr std::array<float, NumChannels> kLfoRateHz {
+        0.113f, 0.171f, 0.227f, 0.311f, 0.387f, 0.443f, 0.521f, 0.587f,
+        0.641f, 0.719f, 0.793f, 0.857f, 0.923f, 1.031f, 1.117f, 1.193f
+    };
 
+    constexpr float kGolden = 1.618033988749f;
     for (int i = 0; i < NumChannels; ++i)
     {
-        const float rate  = baseRate + rateStep * float(i);
-        const float phase = twoPi * float(i) / float(NumChannels);
-        lfos_[static_cast<std::size_t>(i)].prepare(sampleRate_, rate, phase);
+        lfos_[static_cast<std::size_t>(i)].prepare(
+            sampleRate_,
+            kLfoRateHz[static_cast<std::size_t>(i)],
+            kGolden * float(i));
+    }
+
+    // ── Decorrelated stereo output panning (golden-angle spread) ─────────────
+    float panEnergyL = 0.0f;
+    float panEnergyR = 0.0f;
+    for (int i = 0; i < NumChannels; ++i)
+    {
+        const float phase = kGolden * float(i);
+        outPanL_[static_cast<std::size_t>(i)] = std::cos(phase);
+        outPanR_[static_cast<std::size_t>(i)] = std::sin(phase);
+        panEnergyL += outPanL_[static_cast<std::size_t>(i)] * outPanL_[static_cast<std::size_t>(i)];
+        panEnergyR += outPanR_[static_cast<std::size_t>(i)] * outPanR_[static_cast<std::size_t>(i)];
+    }
+    const float panScaleL = std::sqrt(float(NumChannels) * 0.5f / std::max(panEnergyL, 1.0e-6f));
+    const float panScaleR = std::sqrt(float(NumChannels) * 0.5f / std::max(panEnergyR, 1.0e-6f));
+    for (int i = 0; i < NumChannels; ++i)
+    {
+        outPanL_[static_cast<std::size_t>(i)] *= panScaleL;
+        outPanR_[static_cast<std::size_t>(i)] *= panScaleR;
     }
 
     // ── Normalization ─────────────────────────────────────────────────────────
@@ -188,7 +210,7 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
         smoothedDelayTargets_[static_cast<std::size_t>(i)] =
             float(baseDelaySamples_[static_cast<std::size_t>(i)]);
 
-    const float hpOmega = twoPi * kDcBlockerCutoffHz / float(sampleRate_);
+    const float hpOmega = 6.283185307179586f * kDcBlockerCutoffHz / float(sampleRate_);
     hpCoeff_ = 1.0f - std::exp(-hpOmega);
 
     // ── Initial RT + decay EQ coefficients ────────────────────────────────────
@@ -226,6 +248,7 @@ void AdvancedFDN<NumChannels>::reset() noexcept
     hpState_.fill(0.0f);
     delayed_.fill(0.0f);
     mixed_.fill(0.0f);
+    filtered_.fill(0.0f);
     lfoBlockStart_.fill(0.0f);
     lfoBlockStep_.fill(0.0f);
     lfoBlockPrecomputed_ = false;
@@ -466,6 +489,9 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
         const float norm            = injectionNorm_;
         const float modDepthSamples = modDepthCurrentMs_
                                     * static_cast<float>(sampleRate_) * 0.001f;
+        // Mono seed into every delay line — alternating L/R injection creates
+        // static stereo comb modes that ring in the pure-tail (Distance=1) path.
+        const float monoIn          = (dryLeft + dryRight) * 0.5f;
 
         // ── Advance per-channel delay smoothers ───────────────────────────────
         // Each smoothedDelayTargets_[i] tracks baseDelaySamples_[i] with a
@@ -496,9 +522,6 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
         dsp::applyOrthogonalMix(mixed_);
 
         // ── Feedback loop: DC block → absorption → inject → write ─────────────
-        float wetLeft  = 0.0f;
-        float wetRight = 0.0f;
-
         for (int i = 0; i < NumChannels; ++i)
         {
             float sampleValue = mixed_[static_cast<std::size_t>(i)] * feedbackCurrent_;
@@ -509,24 +532,23 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
             sampleValue -= hpState_[static_cast<std::size_t>(i)];
 
             // Multi-band absorption — AFTER DC blocker, BEFORE dry injection.
-            // Only the recirculating signal is absorbed, not the newly-arriving input.
             sampleValue = absorptionBanks_[static_cast<std::size_t>(i)].processSample(sampleValue);
+            filtered_[static_cast<std::size_t>(i)] = sampleValue;
 
-            const float channelIn = ((i % 2) == 0) ? dryLeft : dryRight;
-            const float injected  = sampleValue + channelIn * norm;
+            const float injected = sampleValue + monoIn * norm;
             delayLines_[static_cast<std::size_t>(i)].writeSample(injected);
+        }
 
-            // ── Post-FWHT output tap ──────────────────────────────────────────
-            // Tap from mixed_[i] (post-FWHT diffuse field) not delayed_[i].
-            // Each output sample is a normalised blend of ALL 16 delay channels
-            // → enveloping, wrap-around spatial field.
-            // Level is preserved: mixed_[i] × norm ≈ delayed_[i] × norm for
-            // uncorrelated channels (FWHT energy-normalisation cancels exactly).
-            const float tap = mixed_[static_cast<std::size_t>(i)] * norm;
-            if ((i % 2) == 0)
-                wetLeft  += tap;
-            else
-                wetRight += tap;
+        // ── Wet output: second FWHT on damped state, decorrelated stereo pan ──
+        dsp::applyOrthogonalMix(filtered_);
+
+        float wetLeft  = 0.0f;
+        float wetRight = 0.0f;
+        for (int i = 0; i < NumChannels; ++i)
+        {
+            const float tap = filtered_[static_cast<std::size_t>(i)] * norm;
+            wetLeft  += tap * outPanL_[static_cast<std::size_t>(i)];
+            wetRight += tap * outPanR_[static_cast<std::size_t>(i)];
         }
 
         // ── M/S stereo width ─────────────────────────────────────────────────
