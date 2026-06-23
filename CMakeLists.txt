@@ -92,7 +92,25 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
         Plugin/PluginEditor.cpp
         Plugin/DecayGraphComponent.cpp
         Plugin/PresetManager.cpp
+        Plugin/WebUIEditor.cpp
     )
+
+    # Re-generate WebUIContent.h from plugin_ui.html whenever the HTML changes.
+    # Requires Python 3 in PATH.  If Python is unavailable the pre-generated
+    # Plugin/WebUIContent.h (committed to source) is used as-is.
+    find_program(PYTHON3 python3 NAMES python3 python)
+    if(PYTHON3)
+        add_custom_command(
+            OUTPUT  ${CMAKE_CURRENT_SOURCE_DIR}/Plugin/WebUIContent.h
+            COMMAND ${PYTHON3} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/embed_html.py
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/WebUI/plugin_ui.html
+                    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/embed_html.py
+            COMMENT "[ProReverb] Embedding plugin_ui.html → WebUIContent.h"
+        )
+        add_custom_target(EmbedWebUI DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/Plugin/WebUIContent.h)
+        add_dependencies(ProReverb EmbedWebUI)
+    endif()
 
     target_include_directories(ProReverb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

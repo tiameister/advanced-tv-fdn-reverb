@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "WebUIEditor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -245,7 +246,10 @@ void ReverbPluginProcessor::setStateInformation(const void* data, int sizeInByte
 
 juce::AudioProcessorEditor* ReverbPluginProcessor::createEditor()
 {
-    return new ReverbPluginEditor(*this);
+    // WebUIEditor hosts the modern HTML/CSS/JS UI inside a WebBrowserComponent.
+    // The classic PluginEditor is kept as a fallback: swap WebUIEditor ↔
+    // ReverbPluginEditor here if you need the native JUCE fallback.
+    return new WebUIEditor(*this);
 }
 
 // ── JUCE plugin entry point ───────────────────────────────────────────────────

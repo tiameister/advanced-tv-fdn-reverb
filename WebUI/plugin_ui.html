@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pro Reverb</title>
+<style>
+/* ──────────────────────────────────────────────
+   DESIGN TOKENS
+────────────────────────────────────────────── */
+:root{
+  --bg:#080b12;
+  --surface:rgba(255,255,255,.032);
+  --surface2:rgba(255,255,255,.06);
+  --border:rgba(255,255,255,.065);
+  --border2:rgba(255,255,255,.13);
+  --text:#dce8f5;
+  --muted:#4a5a72;
+  --accent:#4f9eff;
+  --accent-dim:rgba(79,158,255,.18);
+  --accent-glow:rgba(79,158,255,.35);
+  --purple:#9b7af8;
+  --warm:#f5a340;
+  --warm-dim:rgba(245,163,64,.18);
+  --cyan:#3dd6c0;
+  --r:14px;
+  --r-sm:9px;
+  --t:.15s ease;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+html,body{width:100%;height:100%;overflow:hidden}
+
+body{
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  display:flex;
+  flex-direction:column;
+  user-select:none;
+  -webkit-user-select:none;
+}
+
+/* subtle grid texture */
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background-image:
+    linear-gradient(rgba(79,158,255,.015) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(79,158,255,.015) 1px,transparent 1px);
+  background-size:32px 32px;
+  pointer-events:none;
+  z-index:0;
+}
+
+.app{
+  position:relative;z-index:1;
+  display:flex;flex-direction:column;
+  height:100vh;
+  padding:10px;gap:8px;
+}
+
+/* ──────────────────────────────────────────────
+   HEADER
+────────────────────────────────────────────── */
+.header{
+  display:flex;align-items:center;
+  padding:0 14px;height:52px;flex-shrink:0;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  backdrop-filter:blur(40px);
+  -webkit-backdrop-filter:blur(40px);
+  position:relative;overflow:hidden;
+}
+/* top glint */
+.header::after{
+  content:'';
+  position:absolute;top:0;left:10%;right:10%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);
+}
+
+.logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.logo-svg{width:26px;height:26px}
+.logo-name{
+  font-size:14px;font-weight:800;letter-spacing:.12em;
+  background:linear-gradient(120deg,#fff 0%,var(--accent) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.logo-sub{
+  font-size:9px;color:var(--muted);letter-spacing:.14em;
+  margin-left:2px;margin-top:-2px;
+}
+
+.header-mid{flex:1;display:flex;justify-content:center;align-items:center;gap:8px}
+
+/* preset picker */
+.preset-wrap{position:relative;display:flex;align-items:center}
+.preset-wrap svg{position:absolute;right:9px;pointer-events:none;opacity:.5}
+select.preset{
+  appearance:none;-webkit-appearance:none;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:var(--r-sm);
+  color:var(--text);
+  font-size:12px;font-family:inherit;
+  padding:5px 30px 5px 12px;
+  cursor:pointer;min-width:155px;
+  transition:border-color var(--t),background var(--t);
+}
+select.preset:hover{border-color:var(--border2);background:rgba(255,255,255,.08)}
+select.preset:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+
+.header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+.version{font-size:9px;color:var(--muted);letter-spacing:.09em}
+
+.btn{
+  display:flex;align-items:center;gap:5px;
+  padding:6px 13px;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:var(--r-sm);
+  color:var(--accent);
+  font-size:10px;font-weight:700;font-family:inherit;
+  letter-spacing:.09em;cursor:pointer;
+  transition:all var(--t);white-space:nowrap;
+}
+.btn:hover{background:var(--accent-dim);border-color:var(--accent)}
+.btn.on{background:var(--accent-dim);border-color:var(--accent);
+  box-shadow:0 0 12px var(--accent-glow)}
+
+/* ──────────────────────────────────────────────
+   GLASS PANEL
+────────────────────────────────────────────── */
+.panel{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:14px 18px 16px;
+  flex-shrink:0;position:relative;overflow:hidden;
+}
+/* left accent bar */
+.panel::before{
+  content:'';position:absolute;
+  left:0;top:10%;bottom:10%;width:3px;
+  border-radius:0 2px 2px 0;
+}
+.panel.blue::before{background:linear-gradient(180deg,var(--accent),var(--purple))}
+.panel.warm::before{background:linear-gradient(180deg,var(--warm),var(--purple))}
+/* top glint */
+.panel::after{
+  content:'';position:absolute;top:0;left:8%;right:8%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);
+}
+
+.panel-label{
+  font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  margin-bottom:10px;padding-left:6px;
+}
+.panel.blue .panel-label{color:var(--accent)}
+.panel.warm .panel-label{color:var(--warm)}
+
+/* ──────────────────────────────────────────────
+   KNOB COMPONENT
+────────────────────────────────────────────── */
+.knob-row{
+  display:flex;justify-content:space-around;align-items:flex-start;
+}
+
+.knob{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:4px 6px 6px;border-radius:10px;
+  cursor:ns-resize;
+  transition:background var(--t);
+}
+.knob:hover{background:var(--surface2)}
+.knob.dragging{background:var(--accent-dim)}
+
+.knob svg{width:72px;height:72px;overflow:visible}
+
+.k-track{fill:none;stroke:rgba(255,255,255,.07);stroke-width:3.5;stroke-linecap:round}
+.k-arc  {fill:none;stroke-width:3.5;stroke-linecap:round;
+          filter:drop-shadow(0 0 4px currentColor)}
+.k-cap  {fill:#13161e;filter:drop-shadow(0 2px 8px #00000060)}
+.k-ind  {stroke:rgba(255,255,255,.85);stroke-width:1.5;stroke-linecap:round}
+.k-dot  {filter:drop-shadow(0 0 3px currentColor)}
+
+.k-name{font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+        color:var(--muted);text-align:center}
+.k-val {font-size:11px;font-weight:500;color:var(--text);text-align:center;
+        font-variant-numeric:tabular-nums;min-width:52px}
+
+/* ──────────────────────────────────────────────
+   DECAY GRAPH
+────────────────────────────────────────────── */
+.graph-panel{
+  flex:1;min-height:0;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:12px 18px 10px;
+  display:flex;flex-direction:column;
+  position:relative;overflow:hidden;
+}
+.graph-panel::before{
+  content:'';position:absolute;
+  left:0;top:10%;bottom:10%;width:3px;
+  border-radius:0 2px 2px 0;
+  background:linear-gradient(180deg,var(--warm),#e04545);
+}
+.graph-panel::after{
+  content:'';position:absolute;top:0;left:8%;right:8%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);
+}
+.graph-label{
+  font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--warm);margin-bottom:8px;padding-left:6px;flex-shrink:0;
+}
+
+#graphSvg{flex:1;width:100%;cursor:crosshair}
+
+.g-gridV{stroke:rgba(255,255,255,.04);stroke-width:1}
+.g-gridH{stroke:rgba(255,255,255,.04);stroke-width:1}
+.g-ref  {stroke:rgba(255,255,255,.09);stroke-width:1;stroke-dasharray:3,3}
+.g-lbl  {font-size:9px;fill:var(--muted);font-family:inherit}
+
+/* ──────────────────────────────────────────────
+   CHARACTER SLIDE-DOWN
+────────────────────────────────────────────── */
+.char-wrap{
+  max-height:0;overflow:hidden;
+  opacity:0;
+  transition:max-height .25s cubic-bezier(.4,0,.2,1),opacity .2s ease;
+}
+.char-wrap.open{max-height:180px;opacity:1}
+
+/* ──────────────────────────────────────────────
+   SCROLLBAR HIDE
+────────────────────────────────────────────── */
+::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ HEADER ═══════════════════════════════════════════════════ -->
+  <header class="header">
+    <div class="logo">
+      <svg class="logo-svg" viewBox="0 0 26 26" fill="none">
+        <defs>
+          <linearGradient id="gemGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#4f9eff" stop-opacity=".9"/>
+            <stop offset="100%" stop-color="#9b7af8" stop-opacity=".9"/>
+          </linearGradient>
+        </defs>
+        <polygon points="13,1 25,9 21,23 5,23 1,9"
+          fill="rgba(79,158,255,.12)" stroke="url(#gemGrad)" stroke-width="1.2"/>
+        <polygon points="13,5 21,11 18,21 8,21 5,11"
+          fill="rgba(79,158,255,.18)"/>
+        <polygon points="13,1 25,9 13,13" fill="rgba(255,255,255,.09)"/>
+        <polygon points="13,1 1,9  13,13" fill="rgba(255,255,255,.05)"/>
+        <circle cx="13" cy="13" r="3" fill="url(#gemGrad)" opacity=".8"/>
+      </svg>
+      <div>
+        <div class="logo-name">PRO REVERB</div>
+        <div class="logo-sub">ALGORITHMIC</div>
+      </div>
+    </div>
+
+    <div class="header-mid">
+      <div class="preset-wrap">
+        <select class="preset" id="presetSel" onchange="onPresetChange(this.value)">
+          <option value="">─ Presets ─</option>
+          <option value="0">Small Room</option>
+          <option value="1">Studio Plate</option>
+          <option value="2">Drum Room</option>
+          <option value="3">Large Hall</option>
+          <option value="4">Cathedral</option>
+        </select>
+        <svg width="9" height="6" viewBox="0 0 9 6"><path fill="#6a7a90" d="M0 0l4.5 6L9 0z"/></svg>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <span class="version">v0.6.0</span>
+      <button class="btn" id="advBtn" onclick="toggleAdv()">CHARACTER ▾</button>
+    </div>
+  </header>
+
+  <!-- ═══ MAIN KNOBS ════════════════════════════════════════════════ -->
+  <div class="panel blue">
+    <div class="panel-label">MAIN</div>
+    <div class="knob-row" id="rowMain"></div>
+  </div>
+
+  <!-- ═══ DECAY GRAPH ═══════════════════════════════════════════════ -->
+  <div class="graph-panel">
+    <div class="graph-label">DECAY CURVE — drag nodes to shape frequency response</div>
+    <svg id="graphSvg"></svg>
+  </div>
+
+  <!-- ═══ CHARACTER (advanced) ══════════════════════════════════════ -->
+  <div class="char-wrap" id="charWrap">
+    <div class="panel warm">
+      <div class="panel-label">CHARACTER</div>
+      <div class="knob-row" id="rowChar"></div>
+    </div>
+  </div>
+
+</div><!-- .app -->
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────
+   JUCE BRIDGE
+   JS → C++  :  window.location.href = 'juce://action?key=val'
+                JUCE intercepts in pageAboutToLoad(), returns false
+   C++ → JS  :  evaluateJavascript("window._juceUpdate('id',val)")
+──────────────────────────────────────────────────────────────────────*/
+const bridge = {
+  _cb:{},
+
+  send(action, params){
+    const qs = Object.entries(params)
+      .map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&');
+    // Use a hidden iframe so the main frame isn't replaced.
+    // JUCE's pageAboutToLoad fires for all sub-frame navigations too.
+    this._frame().src = `juce://${action}?${qs}`;
+  },
+
+  on(id,fn){
+    (this._cb[id]||(this._cb[id]=[])).push(fn);
+  },
+
+  _frame(){
+    let f=document.getElementById('__jBridge');
+    if(!f){
+      f=document.createElement('iframe');
+      f.id='__jBridge';
+      Object.assign(f.style,{display:'none',width:'0',height:'0',border:'0'});
+      document.body.appendChild(f);
+    }
+    return f;
+  }
+};
+
+// Called by C++ evaluateJavascript
+window._juceUpdate = (id, val) => {
+  val = parseFloat(val);
+  if (state[id] !== undefined) state[id] = val;
+  (bridge._cb[id]||[]).forEach(fn=>fn(val));
+};
+
+/* ─────────────────────────────────────────────────────────────────────
+   PARAMETER SCHEMA
+──────────────────────────────────────────────────────────────────────*/
+const SCHEMA = {
+  reverbTime: {label:'REV TIME', min:.1,  max:10,  def:2.5,  dec:2, unit:'s',  row:'main'},
+  size:       {label:'SIZE',     min:0,   max:1,   def:.5,   dec:2, unit:'',   row:'main'},
+  preDelay:   {label:'PRE-DLY',  min:0,   max:100, def:10,   dec:0, unit:'ms', row:'main'},
+  distance:   {label:'PROXIM',   min:0,   max:1,   def:.5,   dec:2, unit:'',   row:'main'},
+  masterWet:  {label:'WET',      min:0,   max:1,   def:.4,   dec:0, fmt:v=>Math.round(v*100)+'%', row:'main'},
+  modDepth:   {label:'MOD',      min:0,   max:2,   def:.5,   dec:2, unit:'',   row:'char'},
+  stereoWidth:{label:'SPACE',    min:0,   max:2,   def:1,    dec:2, unit:'',   row:'char'},
+  erLength:   {label:'ER LEN',   min:20,  max:150, def:80,   dec:0, unit:'ms', row:'char'},
+  erDensity:  {label:'ER DEN',   min:8,   max:30,  def:16,   dec:0, unit:'/s', row:'char'},
+  bassDecay:  {label:'BASS',     min:.5,  max:3,   def:1.4,  dec:2, unit:'×',  row:'graph'},
+  midDecay:   {label:'MID',      min:.5,  max:3,   def:1.0,  dec:2, unit:'×',  row:'graph'},
+  hfDecay:    {label:'HIGH',     min:.05, max:2,   def:.25,  dec:2, unit:'×',  row:'graph'},
+};
+
+const state = {};
+Object.entries(SCHEMA).forEach(([id,p])=>{ state[id]=p.def; });
+
+const fmt = (id,v) => {
+  const p=SCHEMA[id];
+  if(p.fmt) return p.fmt(v);
+  return v.toFixed(p.dec)+(p.unit||'');
+};
+const norm = (id,v) => {
+  const p=SCHEMA[id];
+  return Math.max(0,Math.min(1,(v-p.min)/(p.max-p.min)));
+};
+const denorm = (id,n) => {
+  const p=SCHEMA[id];
+  return p.min+n*(p.max-p.min);
+};
+
+/* ─────────────────────────────────────────────────────────────────────
+   SVG KNOB
+──────────────────────────────────────────────────────────────────────*/
+const R=36, CX=36, CY=36, KR=27, INNER=18;
+const ANG0=-135, SWEEP=270; // degrees
+
+function polar(cx,cy,r,deg){
+  const rad=(deg-90)*Math.PI/180;
+  return [cx+r*Math.cos(rad), cy+r*Math.sin(rad)];
+}
+
+function arc(cx,cy,r,a1,a2){
+  if(Math.abs(a2-a1)<0.01) return '';
+  const [sx,sy]=polar(cx,cy,r,a1);
+  const [ex,ey]=polar(cx,cy,r,a2);
+  const lg=Math.abs(a2-a1)>180?1:0;
+  return `M${sx.toFixed(2)},${sy.toFixed(2)} A${r},${r} 0 ${lg},1 ${ex.toFixed(2)},${ey.toFixed(2)}`;
+}
+
+function mkSvg(tag,attrs){
+  const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));
+  return el;
+}
+
+const COLORS = {
+  main:['#4f9eff','#7bb8ff'],
+  char:['#9b7af8','#b89aff'],
+};
+
+function buildKnob(id, container){
+  const p=SCHEMA[id];
+  const [c1,c2]=p.row==='char'?COLORS.char:COLORS.main;
+
+  const wrap=document.createElement('div');
+  wrap.className='knob';
+  wrap.dataset.id=id;
+
+  // SVG
+  const svg=mkSvg('svg',{viewBox:'0 0 72 72'});
+
+  // Defs: gradient + glow filter
+  const defs=mkSvg('defs',{});
+  const gid=`g_${id}`, fid=`f_${id}`;
+  defs.innerHTML=`
+    <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${c1}"/>
+      <stop offset="100%" stop-color="${c2}" stop-opacity=".7"/>
+    </linearGradient>
+    <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.8" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>`;
+  svg.appendChild(defs);
+
+  // Track
+  const track=mkSvg('path',{class:'k-track',d:arc(CX,CY,KR,ANG0,ANG0+SWEEP)});
+  svg.appendChild(track);
+
+  // Value arc
+  const varc=mkSvg('path',{class:'k-arc',stroke:`url(#${gid})`,filter:`url(#${fid})`});
+  svg.appendChild(varc);
+
+  // Centre cap
+  svg.appendChild(mkSvg('circle',{class:'k-cap',cx:CX,cy:CY,r:INNER}));
+
+  // Indicator line
+  const ind=mkSvg('line',{class:'k-ind'});
+  svg.appendChild(ind);
+
+  // Tip dot
+  const dot=mkSvg('circle',{class:'k-dot',r:'3.5',fill:c1,filter:`url(#${fid})`});
+  svg.appendChild(dot);
+
+  wrap.appendChild(svg);
+
+  // Labels
+  const nm=document.createElement('div'); nm.className='k-name'; nm.textContent=p.label;
+  const vl=document.createElement('div'); vl.className='k-val'; vl.id=`v_${id}`;
+  vl.textContent=fmt(id,p.def);
+  wrap.appendChild(nm); wrap.appendChild(vl);
+
+  container.appendChild(wrap);
+
+  // Visual update
+  const refresh = (val) => {
+    const n=norm(id,val);
+    const endAng=ANG0+n*SWEEP;
+    varc.setAttribute('d', n>.002 ? arc(CX,CY,KR,ANG0,endAng) : '');
+    const [ix,iy]=polar(CX,CY,INNER-5,endAng);
+    const [dx,dy]=polar(CX,CY,KR-1,endAng);
+    ind.setAttribute('x1',CX); ind.setAttribute('y1',CY);
+    ind.setAttribute('x2',ix.toFixed(2)); ind.setAttribute('y2',iy.toFixed(2));
+    dot.setAttribute('cx',dx.toFixed(2)); dot.setAttribute('cy',dy.toFixed(2));
+    vl.textContent=fmt(id,val);
+  };
+  refresh(p.def);
+
+  // Drag
+  let dy0=0, v0=0;
+  const drag=(e)=>{
+    const dy=dy0-(e.touches?e.touches[0].clientY:e.clientY);
+    const sens=e.shiftKey?.0008:.005;
+    const newN=Math.max(0,Math.min(1,norm(id,v0)+dy*sens));
+    state[id]=denorm(id,newN);
+    refresh(state[id]);
+    bridge.send('setParam',{id,value:state[id]});
+  };
+  const up=()=>{
+    wrap.classList.remove('dragging');
+    document.body.style.cursor='';
+    document.removeEventListener('mousemove',drag);
+    document.removeEventListener('mouseup',up);
+  };
+  wrap.addEventListener('mousedown',e=>{
+    dy0=e.clientY; v0=state[id];
+    wrap.classList.add('dragging');
+    document.body.style.cursor='ns-resize';
+    e.preventDefault();
+    document.addEventListener('mousemove',drag);
+    document.addEventListener('mouseup',up);
+  });
+  wrap.addEventListener('dblclick',()=>{
+    state[id]=p.def;
+    refresh(p.def);
+    bridge.send('setParam',{id,value:p.def});
+  });
+  wrap.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const step=(e.deltaY<0?1:-1)*(p.max-p.min)*.012;
+    state[id]=Math.max(p.min,Math.min(p.max,state[id]+step));
+    refresh(state[id]);
+    bridge.send('setParam',{id,value:state[id]});
+  },{passive:false});
+
+  // JUCE automation sync
+  bridge.on(id,v=>{ state[id]=v; refresh(v); });
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   DECAY GRAPH
+──────────────────────────────────────────────────────────────────────*/
+const FMIN=20, FMAX=20000, MMIN=0.2, MMAX=3.3;
+const NODE_F  =[250,1500,5000];
+const NODE_IDS=['bassDecay','midDecay','hfDecay'];
+const NODE_COL=['#f5a340','#4f9eff','#3dd6c0'];
+let GW=0,GH=0;
+const PAD={l:36,r:12,t:12,b:26};
+
+const fToX=f=>{
+  const lm=Math.log10(FMIN),lx=Math.log10(FMAX);
+  return PAD.l+((Math.log10(f)-lm)/(lx-lm))*(GW-PAD.l-PAD.r);
+};
+const mToY=m=>PAD.t+(1-(m-MMIN)/(MMAX-MMIN))*(GH-PAD.t-PAD.b);
+const yToM=y=>{
+  const t=1-(y-PAD.t)/(GH-PAD.t-PAD.b);
+  return Math.max(MMIN,Math.min(MMAX,MMIN+t*(MMAX-MMIN)));
+};
+
+const getM=f=>{
+  const l=Math.log10,
+        lf=l(f),l0=l(NODE_F[0]),l1=l(NODE_F[1]),l2=l(NODE_F[2]),
+        m0=state.bassDecay,m1=state.midDecay,m2=state.hfDecay;
+  if(lf<=l0)return m0;
+  if(lf>=l2)return m2;
+  if(lf<=l1){const t=(lf-l0)/(l1-l0);return m0+t*(m1-m0);}
+  const t=(lf-l1)/(l2-l1); return m1+t*(m2-m1);
+};
+
+function curvePts(close){
+  const steps=100,lm=Math.log10(FMIN),lx=Math.log10(FMAX);
+  let d='';
+  const bot=GH-PAD.b;
+  for(let i=0;i<=steps;i++){
+    const t=i/steps;
+    const f=Math.pow(10,lm+t*(lx-lm));
+    const x=fToX(f), y=mToY(getM(f));
+    if(i===0) d=close?`M${x},${bot} L${x},${y}`:`M${x},${y}`;
+    else d+=` L${x},${y}`;
+  }
+  if(close) d+=` L${fToX(FMAX)},${bot} Z`;
+  return d;
+}
+
+function buildGraph(){
+  const svg=document.getElementById('graphSvg');
+  const r=svg.getBoundingClientRect();
+  GW=r.width||660; GH=r.height||175;
+  svg.setAttribute('viewBox',`0 0 ${GW} ${GH}`);
+  svg.innerHTML='';
+
+  // ── defs ──────────────────────────────────────────────────────────
+  const defs=mkSvg('defs',{});
+  defs.innerHTML=`
+    <linearGradient id="fillG" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="${NODE_COL[0]}" stop-opacity=".28"/>
+      <stop offset="45%"  stop-color="${NODE_COL[1]}" stop-opacity=".15"/>
+      <stop offset="100%" stop-color="${NODE_COL[2]}" stop-opacity=".22"/>
+    </linearGradient>
+    <linearGradient id="strokeG" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="${NODE_COL[0]}" stop-opacity=".95"/>
+      <stop offset="45%"  stop-color="${NODE_COL[1]}" stop-opacity=".85"/>
+      <stop offset="100%" stop-color="${NODE_COL[2]}" stop-opacity=".95"/>
+    </linearGradient>
+    ${NODE_IDS.map((_,i)=>`
+    <filter id="ng${i}" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <radialGradient id="halo${i}" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="${NODE_COL[i]}" stop-opacity=".35"/>
+      <stop offset="100%" stop-color="${NODE_COL[i]}" stop-opacity="0"/>
+    </radialGradient>`).join('')}`;
+  svg.appendChild(defs);
+
+  // ── vertical grid ─────────────────────────────────────────────────
+  const gv=mkSvg('g',{});
+  [30,50,100,200,500,1000,2000,5000,10000,18000].forEach(f=>{
+    const x=fToX(f);
+    gv.appendChild(mkSvg('line',{class:'g-gridV',x1:x,y1:PAD.t,x2:x,y2:GH-PAD.b}));
+  });
+  svg.appendChild(gv);
+
+  // ── horizontal grid ───────────────────────────────────────────────
+  const gh=mkSvg('g',{});
+  [.5,1,1.5,2,2.5,3].forEach(m=>{
+    const y=mToY(m);
+    const cls=m===1?'g-ref':'g-gridH';
+    gh.appendChild(mkSvg('line',{class:cls,x1:PAD.l,y1:y,x2:GW-PAD.r,y2:y}));
+  });
+  svg.appendChild(gh);
+
+  // ── freq labels ───────────────────────────────────────────────────
+  const gl=mkSvg('g',{});
+  [[100,'100'],[500,'500'],[1000,'1k'],[5000,'5k'],[10000,'10k']].forEach(([f,t])=>{
+    const tx=mkSvg('text',{class:'g-lbl',x:fToX(f),y:GH-PAD.b+15,'text-anchor':'middle'});
+    tx.textContent=t; gl.appendChild(tx);
+  });
+  [[.5,'0.5×'],[1,'1×'],[2,'2×'],[3,'3×']].forEach(([m,t])=>{
+    const tx=mkSvg('text',{class:'g-lbl',x:PAD.l-5,y:mToY(m)+3.5,'text-anchor':'end'});
+    tx.textContent=t; gl.appendChild(tx);
+  });
+  svg.appendChild(gl);
+
+  // ── curve fill ────────────────────────────────────────────────────
+  const cfill=mkSvg('path',{id:'gFill',fill:'url(#fillG)'});
+  svg.appendChild(cfill);
+
+  // ── curve stroke ──────────────────────────────────────────────────
+  const cstroke=mkSvg('path',{id:'gStroke',fill:'none',
+    stroke:'url(#strokeG)','stroke-width':'2','stroke-linejoin':'round'});
+  svg.appendChild(cstroke);
+
+  // ── nodes ─────────────────────────────────────────────────────────
+  NODE_IDS.forEach((nid,i)=>{
+    const col=NODE_COL[i];
+    const ng=mkSvg('g',{id:`ng_${i}`,cursor:'ns-resize'});
+
+    // Halo circle (big, transparent, for hit area)
+    ng.appendChild(mkSvg('circle',{id:`nh_${i}`,r:'20',fill:`url(#halo${i})`,opacity:'0',
+      style:'transition:opacity .15s'}));
+
+    // Ring
+    ng.appendChild(mkSvg('circle',{id:`nr_${i}`,r:'9',fill:col,
+      'fill-opacity':'.22',stroke:col,'stroke-width':'1.8',
+      filter:`url(#ng${i})`,style:'transition:r .12s'}));
+
+    // Centre dot
+    ng.appendChild(mkSvg('circle',{r:'4.5',fill:col}));
+
+    // Value badge background
+    ng.appendChild(mkSvg('rect',{id:`nbb_${i}`,
+      width:'38',height:'15',rx:'4',
+      fill:'#0a0b12','fill-opacity':'.9',stroke:col,
+      'stroke-width':'.6','stroke-opacity':'.55'}));
+
+    // Value badge text
+    const nblt=mkSvg('text',{id:`nbl_${i}`,
+      'font-size':'8.5',fill:'#dce8f5','text-anchor':'middle',
+      'font-family':'inherit'});
+    ng.appendChild(nblt);
+
+    svg.appendChild(ng);
+
+    // Drag
+    let dragging=false;
+    ng.addEventListener('mousedown',e=>{
+      dragging=true; e.stopPropagation(); e.preventDefault();
+      document.getElementById(`nh_${i}`).setAttribute('opacity','1');
+      document.getElementById(`nr_${i}`).setAttribute('r','11');
+      const move=ev=>{
+        if(!dragging)return;
+        const sr=svg.getBoundingClientRect();
+        const newM=yToM(ev.clientY-sr.top);
+        state[nid]=newM;
+        updateGraph();
+        bridge.send('setParam',{id:nid,value:newM});
+      };
+      const stop=()=>{
+        dragging=false;
+        document.getElementById(`nh_${i}`).setAttribute('opacity','0');
+        document.getElementById(`nr_${i}`).setAttribute('r','9');
+        document.removeEventListener('mousemove',move);
+        document.removeEventListener('mouseup',stop);
+      };
+      document.addEventListener('mousemove',move);
+      document.addEventListener('mouseup',stop);
+    });
+    ng.addEventListener('mouseenter',()=>{
+      if(!dragging){
+        document.getElementById(`nh_${i}`).setAttribute('opacity','.7');
+        document.getElementById(`nr_${i}`).setAttribute('r','10');
+      }
+    });
+    ng.addEventListener('mouseleave',()=>{
+      if(!dragging){
+        document.getElementById(`nh_${i}`).setAttribute('opacity','0');
+        document.getElementById(`nr_${i}`).setAttribute('r','9');
+      }
+    });
+  });
+
+  // JUCE automation sync for graph params
+  NODE_IDS.forEach(id=>{ bridge.on(id,()=>updateGraph()); });
+
+  updateGraph();
+}
+
+function updateGraph(){
+  const f=document.getElementById('gFill'),
+        s=document.getElementById('gStroke');
+  if(!f||!s) return;
+  f.setAttribute('d',curvePts(true));
+  s.setAttribute('d',curvePts(false));
+
+  NODE_IDS.forEach((nid,i)=>{
+    const x=fToX(NODE_F[i]), y=mToY(state[nid]);
+    document.querySelectorAll(`#ng_${i} circle`).forEach(c=>{
+      c.setAttribute('cx',x); c.setAttribute('cy',y);
+    });
+    const bb=document.getElementById(`nbb_${i}`);
+    if(bb){ bb.setAttribute('x',x-19); bb.setAttribute('y',y-26); }
+    const bl=document.getElementById(`nbl_${i}`);
+    if(bl){ bl.setAttribute('x',x); bl.setAttribute('y',y-15);
+      bl.textContent=state[nid].toFixed(2)+'×'; }
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   ADVANCED TOGGLE
+──────────────────────────────────────────────────────────────────────*/
+let advOpen=false;
+function toggleAdv(){
+  advOpen=!advOpen;
+  document.getElementById('charWrap').classList.toggle('open',advOpen);
+  const b=document.getElementById('advBtn');
+  b.textContent='CHARACTER '+(advOpen?'▴':'▾');
+  b.classList.toggle('on',advOpen);
+  bridge.send('advancedView',{open:advOpen?1:0});
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   PRESET
+──────────────────────────────────────────────────────────────────────*/
+function onPresetChange(v){
+  if(v==='') return;
+  bridge.send('loadPreset',{idx:parseInt(v)});
+  // reset dropdown after a tick
+  setTimeout(()=>{ document.getElementById('presetSel').value=''; },300);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   INIT
+──────────────────────────────────────────────────────────────────────*/
+function init(){
+  ['reverbTime','size','preDelay','distance','masterWet'].forEach(id=>
+    buildKnob(id, document.getElementById('rowMain')));
+  ['modDepth','stereoWidth','erLength','erDensity'].forEach(id=>
+    buildKnob(id, document.getElementById('rowChar')));
+  buildGraph();
+}
+
+if(document.readyState==='loading')
+  document.addEventListener('DOMContentLoaded',init);
+else init();
+
+window.addEventListener('resize',()=>{
+  buildGraph();
+});
+</script>
+</body>
+</html>
