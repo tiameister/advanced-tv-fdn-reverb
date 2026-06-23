@@ -59,6 +59,14 @@ public:
                          float a1, float a2) noexcept;
 
     /**
+     * Immediately snap running coefficient values to their current targets,
+     * bypassing the one-pole smoother. Call after the very first
+     * setCoefficients() during prepare() so there is no initial glide from
+     * the identity filter to the EQ curve on the first audio block.
+     */
+    void snapCoefficientsToTargets() noexcept;
+
+    /**
      * Process one sample.
      * Advances the one-pole smoother for every coefficient, then evaluates
      * the TDF-II difference equations.  No math beyond MAC operations.

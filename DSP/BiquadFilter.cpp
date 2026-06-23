@@ -35,6 +35,15 @@ void BiquadFilter::setCoefficients(float b0, float b1, float b2,
     a2t_ = a2;
 }
 
+void BiquadFilter::snapCoefficientsToTargets() noexcept
+{
+    b0c_ = b0t_;
+    b1c_ = b1t_;
+    b2c_ = b2t_;
+    a1c_ = a1t_;
+    a2c_ = a2t_;
+}
+
 float BiquadFilter::processSample(float x) noexcept
 {
     // ── Step 1: advance one-pole coefficient smoothers ───────────────────────

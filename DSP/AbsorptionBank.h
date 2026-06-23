@@ -60,6 +60,13 @@ public:
     void reset() noexcept;
 
     /**
+     * Snap all three biquad running coefficients to their current targets.
+     * Call once after updateCoefficients() during prepare() to prevent a
+     * ~20 ms glide from unity to the EQ curve on the very first audio block.
+     */
+    void snapCoefficientsToTargets() noexcept;
+
+    /**
      * Recalculate biquad coefficients from perceptual parameters.
      *
      * Designed to be called at block rate from the audio thread preamble,

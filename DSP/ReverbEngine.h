@@ -91,9 +91,9 @@ public:
     }
 
     /**
-     * Distance (0..1) — linear crossfade between ER and FDN tail.
+     * Distance (0..1) — equal-power crossfade between ER and FDN tail.
      * Sets the target; smoothed per-sample in processBlock → zipper-free.
-     *   0 = close (ER dominates), 0.5 = balanced, 1 = far (tail dominates).
+     *   0 = close (ER dominates), 0.5 = balanced (–3 dB each), 1 = far (tail dominates).
      */
     void setDistance(float d) noexcept
     {
@@ -112,6 +112,26 @@ public:
 
     /** FDN LFO modulation depth (samples). */
     void setFdnModDepth(float d) noexcept { fdn_.setModDepth(d); }
+
+    /**
+     * Frequency-dependent decay EQ (Phase 3).
+     * Delegates to AdvancedFDN::setDecayEQ which recomputes per-channel
+     * T60 gains and updates the AbsorptionBank coefficient smoothers.
+     * Safe to call from the UI thread at any time.
+     *
+     * @param lowFreq   Low-shelf corner (Hz).          Default: 250 Hz
+     * @param lowT60    Bass T60 (s, > 0).              Default: 3.0 s
+     * @param midFreq   Mid peak centre (Hz).           Default: 1500 Hz
+     * @param midT60    Mid T60 (s, > 0).               Default: 2.0 s
+     * @param highFreq  High-shelf corner (Hz).         Default: 5000 Hz
+     * @param highT60   HF T60 (s, > 0).               Default: 0.8 s
+     */
+    void setDecayEQ(float lowFreq,  float lowT60,
+                    float midFreq,  float midT60,
+                    float highFreq, float highT60) noexcept
+    {
+        fdn_.setDecayEQ(lowFreq, lowT60, midFreq, midT60, highFreq, highT60);
+    }
 
     // ── Sub-module access (diagnostics / smoke tests) ────────────────────────
     const EarlyReflections& earlyReflections() const noexcept { return er_; }

@@ -142,6 +142,13 @@ void AbsorptionBank::reset() noexcept
     highShelf_.reset();
 }
 
+void AbsorptionBank::snapCoefficientsToTargets() noexcept
+{
+    lowShelf_.snapCoefficientsToTargets();
+    peak_.snapCoefficientsToTargets();
+    highShelf_.snapCoefficientsToTargets();
+}
+
 void AbsorptionBank::updateCoefficients(double sampleRate,
                                         float  channelDelayTimeSec,
                                         float  lowShelfFreqHz,  float t60LowSec,

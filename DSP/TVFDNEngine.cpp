@@ -46,3 +46,10 @@ void TVFDNEngine::setModRates(const std::array<float, 16>& ratesHz) noexcept
 {
     fdn_.setModRates(ratesHz);
 }
+
+void TVFDNEngine::setDecayEQ(float lowFreq,  float lowT60,
+                             float midFreq,  float midT60,
+                             float highFreq, float highT60) noexcept
+{
+    fdn_.setDecayEQ(lowFreq, lowT60, midFreq, midT60, highFreq, highT60);
+}

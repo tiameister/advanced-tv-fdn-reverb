@@ -24,6 +24,11 @@ public:
     void setDryWet(float mix) noexcept;
     void setModRates(const std::array<float, 16>& ratesHz) noexcept;
 
+    /** Frequency-dependent decay EQ — delegates to AdvancedFDN::setDecayEQ. */
+    void setDecayEQ(float lowFreq,  float lowT60,
+                    float midFreq,  float midT60,
+                    float highFreq, float highT60) noexcept;
+
     AdvancedFDN<16>& getFDN() noexcept { return fdn_; }
     const AdvancedFDN<16>& getFDN() const noexcept { return fdn_; }
 

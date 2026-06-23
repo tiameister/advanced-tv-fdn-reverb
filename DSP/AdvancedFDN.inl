@@ -117,9 +117,12 @@ void AdvancedFDN<NumChannels>::prepare(double sampleRate, int maxBlockSize)
     for (int i = 0; i < NumChannels; ++i)
         absorptionBanks_[static_cast<std::size_t>(i)].prepare(sampleRate);
 
-    // Snap biquad coefficient smoothers to initial decay-EQ targets so the
-    // very first processBlock call produces no transient glide in the filters.
+    // Compute initial decay-EQ coefficients, then immediately snap the one-pole
+    // smoothers so the very first processBlock produces no transient glide from
+    // identity filters to the EQ curve.
     updateFilterCoefficients();
+    for (auto& bank : absorptionBanks_)
+        bank.snapCoefficientsToTargets();
 
     constexpr float smoothingTimeSeconds = 0.05f;
     paramSmoothingCoeff_ = 1.0f - std::exp(-1.0f / (smoothingTimeSeconds * static_cast<float>(sampleRate_)));
@@ -290,6 +293,30 @@ void AdvancedFDN<NumChannels>::processBlock(const float* left,
 template <int NumChannels>
 void AdvancedFDN<NumChannels>::updateFilterCoefficients() noexcept
 {
+    // ── Feedback / T60 coupling (DSP tuning note) ─────────────────────────────
+    // The per-loop gain at any frequency is the product of two terms:
+    //
+    //   loop_gain(f) = feedbackCurrent_ × absorptionBank_gain(f)
+    //
+    // t60ToLinearGain computes only the absorptionBank_gain component, assuming
+    // feedbackCurrent_ = 1.0.  Because the actual loop gain is multiplied by
+    // feedbackCurrent_ (default 0.85), the realised T60 will be SHORTER than
+    // the target:
+    //
+    //   actual_T60 ≈ -3·D / log10(feedbackTarget_ × 10^(-3·D / targetT60))
+    //
+    // For typical settings (feedback=0.85, D≈10–18 ms) the discrepancy is
+    // roughly 50–70 % of the target T60 (e.g. targetT60=3 s → actual≈1.5 s).
+    //
+    // Practical guidance
+    // ─────────────────
+    // • The six T60 knobs control RELATIVE (spectral shape) decay, not
+    //   absolute duration.  Use setFdnFeedback() to set overall reverb length.
+    // • For absolute T60 accuracy, divide the target gain by feedbackCurrent_
+    //   before passing to updateFilterCoefficients, or expose a combined
+    //   "decay time" + "HF/LF ratio" UI rather than raw T60 values.
+    // ─────────────────────────────────────────────────────────────────────────
+
     for (int i = 0; i < NumChannels; ++i)
     {
         // Convert this channel's integer delay length to seconds.
