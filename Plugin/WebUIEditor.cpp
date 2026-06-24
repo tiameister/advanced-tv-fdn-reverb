@@ -37,10 +37,8 @@ juce::WebBrowserComponent::Options makeWebBrowserOptions()
 // ── Parameter ID list (must match APVTS) ─────────────────────────────────────
 static const char* const kAllParamIds[] =
 {
-    P::kParamReverbTime, P::kParamSize,        P::kParamPreDelay,
-    P::kParamDistance,   P::kParamMasterWet,   P::kParamModDepth,
-    P::kParamStereoWidth,P::kParamErLength,    P::kParamErDensity,
-    P::kParamBassDecay,  P::kParamMidDecay,    P::kParamHfDecay,
+    P::kParamTime, P::kParamSize, P::kParamDamping,
+    P::kParamPreDelay, P::kParamMix,
 };
 
 // ── Browser (WebView2-only) ───────────────────────────────────────────────────
@@ -142,8 +140,11 @@ void WebUIEditor::handleJuceURL(const juce::String& url)
     }
     else if (action == "loadPreset")
     {
-        const int idx = params["idx"].getIntValue();
-        presetManager_.loadPreset(idx);
+        if (params.count("name") > 0)
+            presetManager_.loadPresetByName(params["name"]);
+        else
+            presetManager_.loadPreset(params["idx"].getIntValue());
+
         pushAllParamsToJS();
     }
     // "advancedView" — no-op on the C++ side; the JS handles the layout itself.

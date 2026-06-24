@@ -6,16 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── DSP core library (JUCE-free) ──────────────────────────────────────────────
 add_library(tvfdn_dsp STATIC
-    # Phase 1
     DSP/FractionalDelayLine.cpp
-    DSP/TVFDNEngine.cpp
-    # Phase 2
-    DSP/VelvetNoiseGenerator.cpp
-    DSP/EarlyReflections.cpp
+    DSP/DattorroReverb.cpp
     DSP/ReverbEngine.cpp
-    # Phase 3
-    DSP/BiquadFilter.cpp
-    DSP/AbsorptionBank.cpp
 )
 
 target_include_directories(tvfdn_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -34,7 +27,6 @@ target_link_libraries(reverb_smoke_test PRIVATE tvfdn_dsp)
 
 add_executable(decay_smoke_test       Tests/decay_smoke_test.cpp)
 target_link_libraries(decay_smoke_test PRIVATE tvfdn_dsp)
-
 # ── JUCE (Phase 4: VST3 plugin shell) ─────────────────────────────────────────
 #
 # JUCE is expected as a git submodule at <repo>/JUCE/.
@@ -78,7 +70,7 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
         PLUGIN_CODE               Tvrb
         PLUGIN_NAME               "TiaVerb"
         PRODUCT_NAME              "TiaVerb"
-        DESCRIPTION               "Professional algorithmic reverb with a time-varying FDN engine, interactive decay shaping, proximity modelling, and factory presets."
+        DESCRIPTION               "Lush Dattorro plate/hall reverb with Web UI."
         VERSION                   "1.0.0"
         BUNDLE_ID                 com.tiaaudio.tiaverb
         FORMATS                   VST3 Standalone
@@ -99,7 +91,6 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
     target_sources(ProReverb PRIVATE
         Plugin/PluginProcessor.cpp
         Plugin/PluginEditor.cpp
-        Plugin/DecayGraphComponent.cpp
         Plugin/PresetManager.cpp
         Plugin/WebUIEditor.cpp
     )

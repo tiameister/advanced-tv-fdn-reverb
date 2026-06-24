@@ -3,15 +3,6 @@
  *
  * Usage:
  *   batch_render <input.wav> [output_directory]
- *
- * Reads a stereo (or mono) WAV file, renders one output file per parameter
- * configuration (distance × stereo width), and writes 32-bit float WAVs.
- *
- * Example:
- *   batch_render audio.wav renders/
- *   → renders/dist_0.0_width_0.0.wav
- *     renders/dist_0.5_width_1.0.wav
- *     ...
  */
 
 #include "DSP/ReverbEngine.h"
@@ -32,29 +23,24 @@ constexpr int kBlockSize = 512;
 
 struct RenderConfig
 {
-    float distance;
-    float stereoWidth;
+    float time;
+    float size;
 };
 
-// Batch matrix: distance × FDN stereo width
 const std::vector<RenderConfig> kBatchConfigs {
-    { 0.0f, 0.0f },
-    { 0.0f, 1.0f },
-    { 0.0f, 2.0f },
-    { 0.5f, 0.0f },
-    { 0.5f, 1.0f },
-    { 0.5f, 2.0f },
-    { 1.0f, 0.0f },
-    { 1.0f, 1.0f },
-    { 1.0f, 2.0f },
+    { 1.0f, 0.3f },
+    { 1.0f, 0.7f },
+    { 2.5f, 0.3f },
+    { 2.5f, 0.7f },
+    { 5.0f, 0.5f },
 };
 
-std::string formatOutputName(float distance, float stereoWidth)
+std::string formatOutputName(float time, float size)
 {
     char buf[64];
-    std::snprintf(buf, sizeof(buf), "dist_%.1f_width_%.1f.wav",
-                  static_cast<double>(distance),
-                  static_cast<double>(stereoWidth));
+    std::snprintf(buf, sizeof(buf), "time_%.1f_size_%.1f.wav",
+                  static_cast<double>(time),
+                  static_cast<double>(size));
     return std::string(buf);
 }
 
@@ -150,17 +136,11 @@ bool renderConfiguration(const juce::AudioBuffer<float>& dryInput,
                          const RenderConfig& config,
                          const juce::File& outputFile)
 {
-    // Set targets BEFORE prepare() so AdvancedFDN snaps width on prepare,
-    // and ReverbEngine::reset() (called at end of prepare) snaps distance.
     ReverbEngine engine;
-    engine.setDistance(config.distance);
-    engine.setFdnStereoWidth(config.stereoWidth);
-    engine.setMasterWet(1.0f);
-    engine.setReverbTime(2.5f);
-    engine.setDecayShape(1.4f, 1.0f, 0.12f);       // faster HF rolloff → less metallic HF ring
-    engine.setSize(0.67f);                          // longer delays → lower modal density
-    engine.setFdnModDepth(2.5f);
-
+    engine.setTime(config.time);
+    engine.setSize(config.size);
+    engine.setDamping(5000.0f);
+    engine.setMix(1.0f);
     engine.prepare(sampleRate, kBlockSize);
 
     const int totalSamples = dryInput.getNumSamples();
@@ -192,7 +172,6 @@ bool renderConfiguration(const juce::AudioBuffer<float>& dryInput,
                         static_cast<std::size_t>(numThisBlock) * sizeof(float));
         }
 
-        // ReverbEngine::processBlock is in-place (L/R read and written).
         engine.processBlock(blockL.data(), blockR.data(), numThisBlock);
 
         if (numChannels >= 2)
@@ -216,10 +195,10 @@ bool renderConfiguration(const juce::AudioBuffer<float>& dryInput,
     if (!writeOutputWav(outputFile, wetBuffer, sampleRate))
         return false;
 
-    std::printf("  Wrote %s (distance=%.1f, width=%.1f)\n",
+    std::printf("  Wrote %s (time=%.1f, size=%.1f)\n",
                 outputFile.getFileName().toRawUTF8(),
-                config.distance,
-                config.stereoWidth);
+                config.time,
+                config.size);
     return true;
 }
 
@@ -228,8 +207,8 @@ void printUsage(const char* argv0)
     std::fprintf(stderr,
                  "Usage: %s <input.wav> [output_directory]\n"
                  "\n"
-                 "Renders the input through ReverbEngine for each distance ×\n"
-                 "stereo-width configuration and writes uniquely named WAV files.\n"
+                 "Renders the input through ReverbEngine for each time × size\n"
+                 "configuration and writes uniquely named WAV files.\n"
                  "\n"
                  "Default output directory: ./batch_output/\n",
                  argv0);
@@ -245,9 +224,9 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const juce::File inputFile  = juce::File::getCurrentWorkingDirectory()
-                                      .getChildFile(juce::String(argv[1]));
-    const juce::File outputDir  = (argc >= 3)
+    const juce::File inputFile = juce::File::getCurrentWorkingDirectory()
+                                     .getChildFile(juce::String(argv[1]));
+    const juce::File outputDir = (argc >= 3)
         ? juce::File::getCurrentWorkingDirectory().getChildFile(juce::String(argv[2]))
         : juce::File::getCurrentWorkingDirectory().getChildFile("batch_output");
 
@@ -282,7 +261,7 @@ int main(int argc, char* argv[])
     for (const RenderConfig& config : kBatchConfigs)
     {
         const juce::File outFile = outputDir.getChildFile(
-            juce::String(formatOutputName(config.distance, config.stereoWidth)));
+            juce::String(formatOutputName(config.time, config.size)));
 
         if (!renderConfiguration(dryInput, sampleRate, config, outFile))
             ++failures;
