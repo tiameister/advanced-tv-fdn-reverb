@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(tvfdn_dsp STATIC
     DSP/FractionalDelayLine.cpp
     DSP/DattorroReverb.cpp
+    DSP/ErTapNetwork.cpp
     DSP/ReverbEngine.cpp
 )
 
