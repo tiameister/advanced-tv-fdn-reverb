@@ -13,6 +13,7 @@
  * Top-level reverb engine: pre-delay → input decorrelation → parallel ER + late tail.
  *
  * Wet blend (hardcoded for now): 40 % early reflections, 60 % Dattorro late tail.
+ * A fraction of the ER output is fed into the late tank for acoustic glue.
  * All processing is allocation-free in processBlock().
  */
 class ReverbEngine
@@ -36,6 +37,7 @@ private:
     static constexpr float kMaxPreDelayMs  = 200.0f;
     static constexpr float kErWetShare     = 0.40f;
     static constexpr float kLateWetShare   = 0.60f;
+    static constexpr float kErToLateFeed   = 0.25f;  // ER energy injected into late tank
     static constexpr float kDecorrDelayRms = 9.0f;
 
     struct AllpassStage

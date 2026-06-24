@@ -48,9 +48,15 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .preset-item:hover{background:var(--accent);color:#fff}
 .preset-item.placeholder{color:var(--muted);pointer-events:none}
 .version{font-size:9px;color:var(--muted);letter-spacing:.09em}
-.panel{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px}
+.panel{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px 12px}
 .panel::before{content:'';position:absolute;left:0;top:12%;bottom:12%;width:3px;border-radius:0 2px 2px 0;background:linear-gradient(180deg,var(--accent),var(--purple))}
-.knob-row{display:grid;grid-template-columns:repeat(5,1fr);align-items:center;justify-items:center;gap:4px;width:100%;max-width:600px}
+.viz-wrap{position:relative;width:100%;max-width:600px;flex:1;min-height:108px;max-height:148px;background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.04);border-radius:var(--r-sm);overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.03),inset 0 -8px 24px rgba(0,0,0,.25)}
+.viz-wrap svg{display:block;width:100%;height:100%}
+.viz-label{position:absolute;font-size:8px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:rgba(106,122,144,.85);pointer-events:none}
+.viz-label-freq{top:7px;left:12px}
+.viz-label-time{bottom:6px;left:12px}
+.viz-freq-tag{position:absolute;top:7px;right:12px;font-size:9px;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums;pointer-events:none}
+.knob-row{display:grid;grid-template-columns:repeat(5,1fr);align-items:center;justify-items:center;gap:4px;width:100%;max-width:600px;flex-shrink:0}
 .knob{display:flex;flex-direction:column;align-items:center;gap:6px;width:76px;padding:0;border-radius:0;cursor:ns-resize;background:transparent}
 .knob:hover,.knob.dragging{background:transparent}
 .knob-svg-wrap{width:72px;height:72px;display:flex;align-items:center;justify-content:center}
@@ -96,6 +102,39 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     <span class="version">v2.0.0</span>
   </header>
   <div class="panel">
+    <div class="viz-wrap" id="vizWrap">
+      <span class="viz-label viz-label-freq">High-cut</span>
+      <span class="viz-label viz-label-time">Decay</span>
+      <span class="viz-freq-tag" id="vizFreqTag">8.0 kHz</span>
+      <svg id="vizSvg" viewBox="0 0 600 130" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="vizDampFill" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="rgba(74,144,226,.22)"/>
+            <stop offset="100%" stop-color="rgba(155,122,248,.08)"/>
+          </linearGradient>
+          <linearGradient id="vizTailFill" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="rgba(74,144,226,.42)"/>
+            <stop offset="55%" stop-color="rgba(74,144,226,.14)"/>
+            <stop offset="100%" stop-color="rgba(155,122,248,0)"/>
+          </linearGradient>
+        </defs>
+        <g opacity=".35" stroke="rgba(255,255,255,.06)" stroke-width="1">
+          <line x1="48" y1="18" x2="588" y2="18"/><line x1="48" y1="38" x2="588" y2="38"/><line x1="48" y1="58" x2="588" y2="58"/>
+          <line x1="120" y1="72" x2="120" y2="118"/><line x1="300" y1="72" x2="300" y2="118"/><line x1="480" y1="72" x2="480" y2="118"/>
+        </g>
+        <path id="vizDampArea" fill="url(#vizDampFill)" d=""/>
+        <path id="vizDampLine" fill="none" stroke="url(#gDampStroke)" stroke-width="1.8" d=""/>
+        <line id="vizDampCutoff" stroke="rgba(74,144,226,.35)" stroke-width="1" stroke-dasharray="3 3" y1="12" y2="64"/>
+        <path id="vizTailArea" fill="url(#vizTailFill)" d=""/>
+        <path id="vizTailLine" fill="none" stroke="rgba(74,144,226,.75)" stroke-width="1.6" d=""/>
+        <line id="vizPredelayMark" stroke="rgba(155,122,248,.55)" stroke-width="1.2" y1="68" y2="122"/>
+        <defs>
+          <linearGradient id="gDampStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#4a90e2"/><stop offset="100%" stop-color="#9b7af8"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
     <div class="knob-row" id="rowMain"></div>
   </div>
 </div>
@@ -152,6 +191,7 @@ function applyHostParameter(paramId, value) {
   if (state[id] === undefined) return;
   state[id] = v;
   (bridge._cb[id] || []).forEach(fn => fn(v));
+  updateVisualizer();
 }
 
 function bindHostParameterListener() {
@@ -169,6 +209,7 @@ window._juceBatchUpdate = (data) => {
   try { obj = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { return; }
   userDragging = false;
   Object.entries(obj).forEach(([id, val]) => applyHostParameter(id, val));
+  updateVisualizer();
 };
 
 const SCHEMA = {
@@ -208,6 +249,104 @@ const denorm = (id, n) => {
   const p = SCHEMA[id];
   return p.min + n * (p.max - p.min);
 };
+
+// ── FabFilter-style response visualizer ───────────────────────────────────────
+const VIZ = {
+  dampArea: null, dampLine: null, dampCutoff: null,
+  tailArea: null, tailLine: null, predelayMark: null, freqTag: null,
+};
+const VIZ_FREQ_MIN = 80;
+const VIZ_FREQ_MAX = 20000;
+const VIZ_PAD = { l: 48, r: 12, freqTop: 14, freqH: 48, timeTop: 72, timeBot: 122 };
+const VIZ_GW = 600 - VIZ_PAD.l - VIZ_PAD.r;
+
+function vizLogFreqX(freq) {
+  const t = (Math.log(freq) - Math.log(VIZ_FREQ_MIN)) / (Math.log(VIZ_FREQ_MAX) - Math.log(VIZ_FREQ_MIN));
+  return VIZ_PAD.l + Math.max(0, Math.min(1, t)) * VIZ_GW;
+}
+
+function lpMag(f, fc) {
+  const r = f / Math.max(fc, 1);
+  return 1 / Math.sqrt(1 + r * r);
+}
+
+function formatFreqTag(hz) {
+  if (hz >= 10000) return (hz / 1000).toFixed(1).replace(/\.0$/, '') + ' kHz';
+  if (hz >= 1000) return (hz / 1000).toFixed(1) + ' kHz';
+  return Math.round(hz) + ' Hz';
+}
+
+function drawDampingCurve(fc) {
+  const top = VIZ_PAD.freqTop;
+  const h = VIZ_PAD.freqH;
+  const baseY = top + h;
+  let line = '';
+  let area = `M ${VIZ_PAD.l} ${baseY}`;
+  const steps = 96;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const f = VIZ_FREQ_MIN * Math.pow(VIZ_FREQ_MAX / VIZ_FREQ_MIN, t);
+    const x = vizLogFreqX(f);
+    const mag = lpMag(f, fc);
+    const y = top + (1 - mag) * h * 0.92 + 2;
+    line += (i === 0 ? 'M' : 'L') + ` ${x.toFixed(1)} ${y.toFixed(1)} `;
+    area += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
+  }
+  area += `L ${VIZ_PAD.l + VIZ_GW} ${baseY} Z`;
+  VIZ.dampLine.setAttribute('d', line.trim());
+  VIZ.dampArea.setAttribute('d', area);
+  const cutX = vizLogFreqX(Math.min(fc, VIZ_FREQ_MAX));
+  VIZ.dampCutoff.setAttribute('x1', cutX.toFixed(1));
+  VIZ.dampCutoff.setAttribute('x2', cutX.toFixed(1));
+  VIZ.freqTag.textContent = formatFreqTag(fc);
+}
+
+function drawTailEnvelope(timeSec, preDlyMs, size01) {
+  const yBase = VIZ_PAD.timeBot;
+  const yTop = VIZ_PAD.timeTop;
+  const h = yBase - yTop;
+  const startX = VIZ_PAD.l + (preDlyMs / 200) * VIZ_GW * 0.24;
+  const tau = 0.18 + timeSec * 0.42 + size01 * 0.35;
+  const peak = 0.42 + size01 * 0.38;
+  const endX = VIZ_PAD.l + VIZ_GW;
+  const steps = 72;
+  let line = '';
+  let area = `M ${startX.toFixed(1)} ${yBase}`;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = startX + t * (endX - startX);
+    const sec = t * tau * 3.2;
+    let amp = peak * Math.exp(-sec / tau);
+    if (t < 0.06) amp *= t / 0.06;
+    const erBump = 0.12 * size01 * Math.exp(-Math.pow((t - 0.04) / 0.035, 2));
+    amp = Math.min(1, amp + erBump);
+    const y = yBase - amp * h * 0.88;
+    line += (i === 0 ? 'M' : 'L') + ` ${x.toFixed(1)} ${y.toFixed(1)} `;
+    area += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
+  }
+  area += `L ${endX.toFixed(1)} ${yBase} Z`;
+  VIZ.tailLine.setAttribute('d', line.trim());
+  VIZ.tailArea.setAttribute('d', area);
+  VIZ.predelayMark.setAttribute('x1', startX.toFixed(1));
+  VIZ.predelayMark.setAttribute('x2', startX.toFixed(1));
+}
+
+function updateVisualizer() {
+  if (!VIZ.dampLine) return;
+  drawDampingCurve(state.damping);
+  drawTailEnvelope(state.time, state.preDelay, state.size);
+}
+
+function initVisualizer() {
+  VIZ.dampArea = document.getElementById('vizDampArea');
+  VIZ.dampLine = document.getElementById('vizDampLine');
+  VIZ.dampCutoff = document.getElementById('vizDampCutoff');
+  VIZ.tailArea = document.getElementById('vizTailArea');
+  VIZ.tailLine = document.getElementById('vizTailLine');
+  VIZ.predelayMark = document.getElementById('vizPredelayMark');
+  VIZ.freqTag = document.getElementById('vizFreqTag');
+  updateVisualizer();
+}
 
 const R = 36, CX = 36, CY = 36, KR = 27, ANG0 = -135, SWEEP = 270;
 
@@ -273,6 +412,7 @@ function buildKnob(id, parent) {
       state[id] = Math.max(SCHEMA[id].min, Math.min(SCHEMA[id].max, startV + delta));
       redraw(state[id]);
       sendParameter(id, state[id]);
+      updateVisualizer();
     };
     const up = () => {
       wrap.classList.remove('dragging');
@@ -293,6 +433,7 @@ function buildKnob(id, parent) {
     state[id] = SCHEMA[id].def;
     redraw(state[id]);
     sendParameter(id, state[id]);
+    updateVisualizer();
   });
   wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -300,6 +441,7 @@ function buildKnob(id, parent) {
     state[id] = Math.max(SCHEMA[id].min, Math.min(SCHEMA[id].max, state[id] + step));
     redraw(state[id]);
     sendParameter(id, state[id]);
+    updateVisualizer();
   }, { passive: false });
 }
 
@@ -335,6 +477,7 @@ function initPresetDropdown() {
 function init() {
   bindHostParameterListener();
   initPresetDropdown();
+  initVisualizer();
   Object.keys(SCHEMA).forEach(id => buildKnob(id, document.getElementById('rowMain')));
 }
 

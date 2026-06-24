@@ -155,6 +155,13 @@ void ReverbEngine::processBlock(float* left, float* right, int numSamples) noexc
     er_.processBlock(decorL_.data(), decorR_.data(),
                      erL_.data(), erR_.data(), numSamples);
 
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const std::size_t idx = static_cast<std::size_t>(i);
+        decorL_[idx] += kErToLateFeed * erL_[idx];
+        decorR_[idx] += kErToLateFeed * erR_[idx];
+    }
+
     dattorro_.processWetTail(decorL_.data(), decorR_.data(),
                              lateL_.data(), lateR_.data(), numSamples);
 
