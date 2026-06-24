@@ -109,11 +109,25 @@ c:\Users\TIA\Desktop\reverb_plugin\build\ProReverb_artefacts\Release\VST3\TiaVer
 
 ### Standalone app
 
+**Build output:**
+
 ```text
 c:\Users\TIA\Desktop\reverb_plugin\build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe
 ```
 
+**Distribution copy** (updated automatically after each Standalone build):
+
+```text
+c:\Users\TIA\Desktop\reverb_plugin\dist\Standalone\TiaVerb.exe
+```
+
 Run directly:
+
+```powershell
+.\dist\Standalone\TiaVerb.exe
+```
+
+Or from the build tree:
 
 ```powershell
 .\build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe
@@ -185,6 +199,7 @@ cmake --build build --config Release --target decay_smoke_test
 |------|----------------|--------|
 | **VST3 bundle** | `ProReverb_VST3` | `build\ProReverb_artefacts\Release\VST3\TiaVerb.vst3` |
 | **Standalone** | `ProReverb_Standalone` | `build\ProReverb_artefacts\Release\Standalone\TiaVerb.exe` |
+| **Standalone (dist)** | `ProReverb_Standalone` | `dist\Standalone\TiaVerb.exe` |
 | Batch render | `batch_render` | `build\Release\batch_render.exe` |
 | Decay smoke test | `decay_smoke_test` | `build\Release\decay_smoke_test.exe` |
 

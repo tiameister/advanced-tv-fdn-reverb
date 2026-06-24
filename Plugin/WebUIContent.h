@@ -32,8 +32,8 @@ static const char kWebUIHTML[] = R"WEBUICONTENT_RAW(
 html,body{width:100%;height:100%;overflow:hidden}
 body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex;flex-direction:column;user-select:none}
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(79,158,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(79,158,255,.015) 1px,transparent 1px);background-size:32px 32px;pointer-events:none;z-index:0}
-.app{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;padding:10px;gap:10px}
-.header{display:flex;align-items:center;padding:0 14px;height:52px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r)}
+.app{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;min-height:0;padding:8px 10px;gap:8px}
+.header{display:flex;align-items:center;padding:0 14px;height:48px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);position:relative;z-index:200}
 .logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .logo-svg{width:26px;height:26px}
 .logo-name{font-size:14px;font-weight:800;letter-spacing:.12em;background:linear-gradient(120deg,#fff,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
@@ -48,20 +48,20 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .preset-item:hover{background:var(--accent);color:#fff}
 .preset-item.placeholder{color:var(--muted);pointer-events:none}
 .version{font-size:9px;color:var(--muted);letter-spacing:.09em}
-.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 14px 20px;flex:1;display:flex;align-items:center;justify-content:center}
-.panel::before{content:'';position:absolute;left:0;top:10%;bottom:10%;width:3px;border-radius:0 2px 2px 0;background:linear-gradient(180deg,var(--accent),var(--purple))}
-.knob-row{display:grid;grid-template-columns:repeat(5,1fr);align-items:start;justify-items:center;gap:8px;width:100%;max-width:640px}
-.knob{display:flex;flex-direction:column;align-items:center;gap:5px;width:76px;padding:6px 4px 8px;border-radius:10px;cursor:ns-resize}
-.knob:hover{background:var(--surface2)}
-.knob.dragging{background:var(--accent-dim)}
+.panel{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px}
+.panel::before{content:'';position:absolute;left:0;top:12%;bottom:12%;width:3px;border-radius:0 2px 2px 0;background:linear-gradient(180deg,var(--accent),var(--purple))}
+.knob-row{display:grid;grid-template-columns:repeat(5,1fr);align-items:center;justify-items:center;gap:4px;width:100%;max-width:600px}
+.knob{display:flex;flex-direction:column;align-items:center;gap:6px;width:76px;padding:0;border-radius:0;cursor:ns-resize;background:transparent}
+.knob:hover,.knob.dragging{background:transparent}
 .knob-svg-wrap{width:72px;height:72px;display:flex;align-items:center;justify-content:center}
-.knob svg{width:72px;height:72px;display:block}
-.k-track{fill:none;stroke:rgba(255,255,255,.07);stroke-width:3.5;stroke-linecap:round}
+.knob svg{width:72px;height:72px;display:block;overflow:visible}
+.k-track{fill:none;stroke:rgba(255,255,255,.08);stroke-width:3.5;stroke-linecap:round}
 .k-arc{fill:none;stroke-width:3.5;stroke-linecap:round}
-.k-cap{fill:#13161e}
-.k-ind{stroke:rgba(255,255,255,.9);stroke-width:1.5;stroke-linecap:round}
-.k-name{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
-.k-val{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;min-width:56px;text-align:center}
+.k-cap{fill:#13161e;filter:drop-shadow(0 2px 5px rgba(0,0,0,.35))}
+.k-ind{stroke:rgba(255,255,255,.92);stroke-width:1.5;stroke-linecap:round}
+.k-name{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:center;line-height:1.2}
+.k-val{font-size:12px;font-weight:600;color:#e0e0e0;font-variant-numeric:tabular-nums;min-width:56px;text-align:center;line-height:1.2;font-family:var(--font)}
+.k-val .unit{font-size:9px;font-weight:400;color:#888;margin-left:1px;letter-spacing:.02em}
 </style>
 </head>
 <body>
@@ -102,6 +102,29 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 <script>
 let userDragging = false;
 
+/** Send JSON to C++ via WebView2 postMessage (JUCE native integration envelope). */
+function sendToHost(eventId, payload) {
+  const envelope = { eventId, payload };
+  if (window.__JUCE__?.backend) {
+    window.__JUCE__.backend.emitEvent(eventId, payload);
+    return;
+  }
+  if (window.chrome?.webview?.postMessage) {
+    window.chrome.webview.postMessage(JSON.stringify(envelope));
+    return;
+  }
+  // Legacy iframe fallback (non-WebView2)
+  if (eventId === 'setParameter') {
+    bridge.send('setParam', { id: payload.paramId, value: payload.value });
+  } else if (eventId === 'loadPreset') {
+    bridge.send('loadPreset', payload);
+  }
+}
+
+function sendParameter(paramId, value) {
+  sendToHost('setParameter', { paramId, value });
+}
+
 const bridge = {
   _cb: {},
   send(action, params) {
@@ -121,25 +144,31 @@ const bridge = {
   }
 };
 
-window._juceUpdate = (id, val) => {
+/** Apply a single parameter update from C++ without echoing back to the host. */
+function applyHostParameter(paramId, value) {
   if (userDragging) return;
-  val = parseFloat(val);
-  if (state[id] !== undefined) state[id] = val;
-  (bridge._cb[id] || []).forEach(fn => fn(val));
-};
+  const id = String(paramId);
+  const v = parseFloat(value);
+  if (state[id] === undefined) return;
+  state[id] = v;
+  (bridge._cb[id] || []).forEach(fn => fn(v));
+}
+
+function bindHostParameterListener() {
+  const onUpdate = (payload) => applyHostParameter(payload.paramId, payload.value);
+  if (window.__JUCE__?.backend) {
+    window.__JUCE__.backend.addEventListener('parameterUpdate', onUpdate);
+  }
+}
+
+// Legacy evaluateJavascript fallbacks (still supported)
+window._juceUpdate = (id, val) => applyHostParameter(id, val);
 
 window._juceBatchUpdate = (data) => {
   let obj;
-  try {
-    obj = typeof data === 'string' ? JSON.parse(data) : data;
-  } catch (e) { return; }
+  try { obj = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { return; }
   userDragging = false;
-  Object.entries(obj).forEach(([id, val]) => {
-    const v = parseFloat(val);
-    if (state[id] === undefined) return;
-    state[id] = v;
-    (bridge._cb[id] || []).forEach(fn => fn(v));
-  });
+  Object.entries(obj).forEach(([id, val]) => applyHostParameter(id, val));
 };
 
 const SCHEMA = {
@@ -156,6 +185,20 @@ Object.entries(SCHEMA).forEach(([id, p]) => { state[id] = p.def; });
 const fmt = (id, v) => {
   const p = SCHEMA[id];
   return p.fmt ? p.fmt(v) : v.toFixed(p.dec) + (p.unit || '');
+};
+
+/** Value HTML with dimmed unit span (e.g. 2.50<span class="unit">s</span>). */
+const fmtHtml = (id, v) => {
+  const p = SCHEMA[id];
+  if (p.fmt) {
+    const s = p.fmt(v);
+    const m = s.match(/^([\d.]+)(.*)$/);
+    if (m && m[2]) return `${m[1]}<span class="unit">${m[2]}</span>`;
+    return s;
+  }
+  const num = v.toFixed(p.dec);
+  if (p.unit) return `${num}<span class="unit">${p.unit}</span>`;
+  return num;
 };
 const norm = (id, v) => {
   const p = SCHEMA[id];
@@ -187,10 +230,10 @@ function buildKnob(id, parent) {
   wrap.innerHTML = `
     <div class="knob-svg-wrap">
       <svg viewBox="0 0 72 72">
-        <path class="k-track" d="${arc(CX, CY, KR, ANG0, ANG0 + SWEEP)}"/>
-        <path class="k-arc" stroke="url(#g${id})" d=""/>
+        <path class="k-track" stroke-linecap="round" d="${arc(CX, CY, KR, ANG0, ANG0 + SWEEP)}"/>
+        <path class="k-arc" stroke-linecap="round" stroke="url(#g${id})" d=""/>
         <circle class="k-cap" cx="${CX}" cy="${CY}" r="18"/>
-        <line class="k-ind" x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY - KR + 6}"/>
+        <line class="k-ind" stroke-linecap="round" x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY - KR + 6}"/>
       </svg>
     </div>
     <div class="k-name">${p.label}</div>
@@ -210,7 +253,7 @@ function buildKnob(id, parent) {
     const [ix, iy] = polar(CX, CY, KR - 6, ang);
     ind.setAttribute('x2', ix.toFixed(2));
     ind.setAttribute('y2', iy.toFixed(2));
-    valEl.textContent = fmt(id, v);
+    valEl.innerHTML = fmtHtml(id, v);
   };
 
   redraw(state[id]);
@@ -229,7 +272,7 @@ function buildKnob(id, parent) {
       const delta = (startY - y) * 0.005 * (SCHEMA[id].max - SCHEMA[id].min);
       state[id] = Math.max(SCHEMA[id].min, Math.min(SCHEMA[id].max, startV + delta));
       redraw(state[id]);
-      bridge.send('setParam', { id, value: state[id] });
+      sendParameter(id, state[id]);
     };
     const up = () => {
       wrap.classList.remove('dragging');
@@ -249,14 +292,14 @@ function buildKnob(id, parent) {
   wrap.addEventListener('dblclick', () => {
     state[id] = SCHEMA[id].def;
     redraw(state[id]);
-    bridge.send('setParam', { id, value: state[id] });
+    sendParameter(id, state[id]);
   });
   wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
     const step = (SCHEMA[id].max - SCHEMA[id].min) * 0.02 * (e.deltaY < 0 ? 1 : -1);
     state[id] = Math.max(SCHEMA[id].min, Math.min(SCHEMA[id].max, state[id] + step));
     redraw(state[id]);
-    bridge.send('setParam', { id, value: state[id] });
+    sendParameter(id, state[id]);
   }, { passive: false });
 }
 
@@ -281,7 +324,7 @@ function initPresetDropdown() {
       e.stopPropagation();
       const name = item.dataset.name;
       document.getElementById('presetLabel').textContent = name;
-      bridge.send('loadPreset', { name });
+      sendToHost('loadPreset', { name });
       menu.classList.remove('open');
     });
   });
@@ -290,6 +333,7 @@ function initPresetDropdown() {
 }
 
 function init() {
+  bindHostParameterListener();
   initPresetDropdown();
   Object.keys(SCHEMA).forEach(id => buildKnob(id, document.getElementById('rowMain')));
 }

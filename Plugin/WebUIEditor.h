@@ -5,33 +5,13 @@
 #include "PresetManager.h"
 
 /**
- * @file  WebUIEditor.h
+ * Web UI editor with bulletproof 2-way APVTS binding.
  *
- * Hosts the modern HTML/CSS/JS plugin UI inside a JUCE WebBrowserComponent.
- *
- * Windows requires Edge WebView2 (not legacy IE).  The browser is initialised
- * with Backend::webview2 and a writable user-data folder under the system temp
- * directory so hosted plugins work inside DAW sandboxes (e.g. Studio One).
- *
- * ── Architecture ─────────────────────────────────────────────────────────────
- *
- *   JS → C++   "juce://action?key=val"  navigation (sub-frame trick)
- *               intercepted in pageAboutToLoad(); navigation cancelled;
- *               parameter set via APVTS.
- *
- *   C++ → JS   evaluateJavascript("window._juceUpdate('id', value)")
- *               called from a juce::Timer at ~60 fps to sync APVTS values.
- *
- * ── Supported juce:// actions ────────────────────────────────────────────────
- *   setParam    id=<paramId>   value=<float>   — set one APVTS parameter
- *   loadPreset  idx=<int>                      — load factory preset
- *   advancedView open=<0|1>                    — (no-op; UI manages its own size)
- *
- * ── Size ─────────────────────────────────────────────────────────────────────
- *   720 × 480 px  (fixed; matches the web layout at 1 : 1 device pixels).
+ * JS → C++  WebView2 postMessage / __JUCE__.backend.emitEvent("setParameter", …)
+ * C++ → JS  emitEvent("parameterUpdate", …) driven by APVTS::Listener
  */
 class WebUIEditor : public juce::AudioProcessorEditor,
-                    private juce::Timer
+                    private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     explicit WebUIEditor(ReverbPluginProcessor& proc);
@@ -39,18 +19,16 @@ public:
 
     void resized() override;
 
-    // Called from the WebBrowserComponent subclass to handle juce:// URLs
     void handleJuceURL(const juce::String& url);
+    void handleSetParameterFromWeb(const juce::var& payload);
+    void handleLoadPresetFromWeb(const juce::var& payload);
 
-    // Called by tests / host to push a value to the web view
-    void pushParamToJS(const juce::String& paramId, float value);
+    void pushParamUpdateToJS(const juce::String& paramId, float value);
     void pushAllParamsToJS();
 
+    static juce::String normaliseParamId(const juce::String& id);
+
 private:
-    // ── Nested WebBrowserComponent ────────────────────────────────────────────
-    // Intercepts juce:// URLs in pageAboutToLoad() without leaving the page.
-    // WebView2 backend + writable user-data folder are configured in WebUIEditor.cpp
-    // (required for DAW sandboxes — without them JUCE falls back to legacy IE/MSHTML).
     struct Browser : public juce::WebBrowserComponent
     {
         explicit Browser(WebUIEditor& owner);
@@ -61,28 +39,17 @@ private:
         WebUIEditor& owner_;
     };
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-    /** Parse a juce:// URL and return a map of query-string key→value. */
-    static std::map<juce::String,juce::String> parseQuery(const juce::String& url);
-
-    /** Write HTML to a temp file and load it; called once on construction. */
+    static std::map<juce::String, juce::String> parseQuery(const juce::String& url);
     void loadUI();
 
-    // ── Timer: push APVTS → JS at ~60 fps ────────────────────────────────────
-    void timerCallback() override;
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
 
-    // ── Members ───────────────────────────────────────────────────────────────
     ReverbPluginProcessor&    processor_;
     PresetManager             presetManager_;
     Browser                   browser_;
 
-    // Shadow copies — only push to JS when a value actually changed
     std::map<juce::String, float> lastPushed_;
-
-    // Temp HTML file path
     juce::File tempHtmlFile_;
-
-    // Is the page fully loaded and ready to receive evaluateJavascript calls?
     bool pageReady_ = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WebUIEditor)

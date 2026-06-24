@@ -37,9 +37,10 @@ target_link_libraries(decay_smoke_test PRIVATE tvfdn_dsp)
 # at any JUCE 8.x installation, or let FetchContent download it automatically.
 
 option(BUILD_VST3         "Build the VST3 plugin target (requires JUCE)" ON)
+option(BUILD_STANDALONE   "Build the standalone desktop app (requires JUCE)" ON)
 option(BUILD_BATCH_RENDER "Build batch_render WAV tool (requires JUCE)" ON)
 
-if(BUILD_VST3 OR BUILD_BATCH_RENDER)
+if(BUILD_VST3 OR BUILD_STANDALONE OR BUILD_BATCH_RENDER)
     # ── Locate JUCE ───────────────────────────────────────────────────────────
     set(JUCE_DIR "" CACHE PATH "Optional: explicit path to a JUCE root directory")
 
@@ -60,7 +61,15 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
     endif()
 
     # ── Plugin target ─────────────────────────────────────────────────────────
+    if(BUILD_VST3 OR BUILD_STANDALONE)
+    set(_plugin_formats "")
     if(BUILD_VST3)
+        list(APPEND _plugin_formats VST3)
+    endif()
+    if(BUILD_STANDALONE)
+        list(APPEND _plugin_formats Standalone)
+    endif()
+
     juce_add_plugin(ProReverb
         COMPANY_NAME              "Tia Audio"
         COMPANY_WEBSITE           "https://tiaaudio.com"
@@ -73,7 +82,7 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
         DESCRIPTION               "Lush Dattorro plate/hall reverb with Web UI."
         VERSION                   "1.0.0"
         BUNDLE_ID                 com.tiaaudio.tiaverb
-        FORMATS                   VST3 Standalone
+        FORMATS                   ${_plugin_formats}
         IS_SYNTH                  FALSE
         NEEDS_MIDI_INPUT          FALSE
         NEEDS_MIDI_OUTPUT         FALSE
@@ -144,9 +153,23 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
             juce::juce_recommended_warning_flags
     )
 
-    # Convenience alias so IDE shows "ProReverb_VST3" clearly
-    message(STATUS "[ProReverb] VST3 + Standalone targets configured.")
-    endif() # BUILD_VST3
+    if(BUILD_STANDALONE AND TARGET ProReverb_Standalone)
+        add_custom_command(TARGET ProReverb_Standalone POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/dist/Standalone"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:ProReverb_Standalone>
+                "${CMAKE_SOURCE_DIR}/dist/Standalone/TiaVerb.exe"
+            COMMENT "[ProReverb] Copying Standalone -> dist/Standalone/TiaVerb.exe")
+    endif()
+
+    if(BUILD_VST3 AND BUILD_STANDALONE)
+        message(STATUS "[ProReverb] VST3 + Standalone targets configured.")
+    elseif(BUILD_VST3)
+        message(STATUS "[ProReverb] VST3 target configured.")
+    elseif(BUILD_STANDALONE)
+        message(STATUS "[ProReverb] Standalone target configured.")
+    endif()
+    endif() # BUILD_VST3 OR BUILD_STANDALONE
 
     # ── batch_render CLI (JUCE audio I/O + tvfdn_dsp) ─────────────────────────
     if(BUILD_BATCH_RENDER)
@@ -172,8 +195,8 @@ if(BUILD_VST3 OR BUILD_BATCH_RENDER)
     message(STATUS "[ProReverb] batch_render CLI target configured.")
     endif() # BUILD_BATCH_RENDER
 
-endif() # BUILD_VST3 OR BUILD_BATCH_RENDER
+endif() # BUILD_VST3 OR BUILD_STANDALONE OR BUILD_BATCH_RENDER
 
-if(NOT BUILD_VST3 AND NOT BUILD_BATCH_RENDER)
-    message(STATUS "[ProReverb] BUILD_VST3=OFF, BUILD_BATCH_RENDER=OFF — skipping JUCE targets.")
+if(NOT BUILD_VST3 AND NOT BUILD_STANDALONE AND NOT BUILD_BATCH_RENDER)
+    message(STATUS "[ProReverb] BUILD_VST3=OFF, BUILD_STANDALONE=OFF, BUILD_BATCH_RENDER=OFF — skipping JUCE targets.")
 endif()
